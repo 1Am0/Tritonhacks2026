@@ -2,10 +2,7 @@
 <html>
 <head>
 <title>Page Title</title>
-    <style>
-        div{border: 5px rebeccapurple ridge; width:400px}
-        h2{border: 2px red ridge; text-align: center;}
-    </style>
+<link rel="stylesheet" href="./moggle.css">
 </head>
 <body>
 
@@ -21,9 +18,13 @@
 	var takeList = [];
 
     function goToDebate(event){
-        console.log(event.target.id);
+        // Id of button clicked
+        console.log(event.target);
+        // Corresponding hot take
         console.log(takeList[event.target.id].childNodes[0].textContent)
-        alert("Starting Debate \n Debate Topic:" + takeList[event.target.id].childNodes[0].textContent)
+
+        //Open window to the debate arena, with the topic selected by user
+        alert("Starting Debate \n Debate Topic: " + takeList[event.target.id].childNodes[0].textContent)
     }
 
     function addPrompt(){
