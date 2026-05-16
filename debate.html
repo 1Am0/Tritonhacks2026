@@ -8,8 +8,10 @@
 </head>
 <body>
     <h1>Welcome to the Debate Arena</h1>
+    <h2 id="topicDisplay"></h2>
 </body>
 <script>
-    alert(document.cookie)
+    const topicDisplay = document.getElementById("topicDisplay");
+    topicDisplay.textContent = "Debate Topic Is: " + document.cookie.slice(12);
 </script>
 </html>
