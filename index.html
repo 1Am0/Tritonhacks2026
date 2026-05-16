@@ -89,7 +89,7 @@
     function goToDebate(event) {
         console.log(event.target);
         console.log(takeList[event.target.id].childNodes[0].textContent);
-        document.cookie = "debateTopic=" + takeList[event.target.id].childNodes[0].textContent;
+        document.cookie = "debateTopic=" + encodeURIComponent(takeList[event.target.id].childNodes[0].textContent) + "; path=/";
         console.log(document.cookie);
         window.open("./debate.html", "_blank");
     }

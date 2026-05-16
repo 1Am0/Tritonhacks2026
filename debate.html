@@ -14,6 +14,18 @@
 </body>
 <script>
     const topicDisplay = document.getElementById("topicDisplay");
-    topicDisplay.textContent = "Debate Topic Is: " + document.cookie.slice(12);
+
+    function getCookie(name) {
+        const cookieValue = document.cookie
+            .split("; ")
+            .find((entry) => entry.startsWith(`${name}=`));
+
+        return cookieValue ? decodeURIComponent(cookieValue.slice(name.length + 1)) : "";
+    }
+
+    const debateTopic = getCookie("debateTopic");
+    topicDisplay.textContent = debateTopic
+        ? `Debate Topic Is: ${debateTopic}`
+        : "Debate Topic Is: No topic selected";
 </script>
 </html>
