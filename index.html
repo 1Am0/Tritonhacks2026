@@ -5,18 +5,65 @@
 <link rel="stylesheet" href="./moggle.css">
 </head>
 <body>
-    <h1>Start Your Own Debatle 🗣️</h1>
-    <div id="takeParent"></div>
-    <h3>Couldn't find any interesting 🔥 takes? </h3>
-    <input id="takeText" type="text">
-    <button id="submitTake">Submit a Take</button>
+    <main class="page-shell">
+        <section class="hero-card">
+            <h3>Couldn't find any interesting 🔥 takes?</h3>
+            <h1>Start Your Own Debatle 🗣️</h1>
+            <form id="takeForm" class="take-form">
+                <label for="supabaseUrlText">Supabase project URL</label>
+                <input id="supabaseUrlText" type="url" placeholder="https://your-project-ref.supabase.co" required>
+                <label for="authorText">Author</label>
+                <input id="authorText" type="text" placeholder="Your name" required>
+                <label for="takeText">Debate topic</label>
+                <input id="takeText" type="text" placeholder="Type a hot take" required>
+                <div class="take-actions">
+                    <button id="submitTake" type="submit">Submit to Supabase</button>
+                    <button id="loadTake" type="button">Pull from Supabase</button>
+                </div>
+                <p id="statusMessage" aria-live="polite"></p>
+            </form>
+        </section>
+        <section>
+            <div id="takeParent"></div>
+        </section>
+    </main>
 
 </body>
 <script>
-    var takeButton = document.getElementById("submitTake");
-    var takeParent = document.getElementById("takeParent"); 
-    var takeTextInput = document.getElementById("takeText")
+    const SUPABASE_ANON_KEY = "sb_publishable_wqHNgiR2yOMhtVX9MrgXPg_CsxqLPQG";
+    const SUPABASE_TABLE = "debate_topics";
+
+    var takeForm = document.getElementById("takeForm");
+    var loadTakeButton = document.getElementById("loadTake");
+    var takeParent = document.getElementById("takeParent");
+    var supabaseUrlInput = document.getElementById("supabaseUrlText");
+    var takeTextInput = document.getElementById("takeText");
+    var authorTextInput = document.getElementById("authorText");
+    var statusMessage = document.getElementById("statusMessage");
+	var savedSupabaseUrl = localStorage.getItem("supabaseUrl") || "";
+	supabaseUrlInput.value = savedSupabaseUrl;
+
 	var takeList = [];
+
+    function getSupabaseUrl() {
+        var supabaseUrl = supabaseUrlInput.value.trim();
+
+        if (!supabaseUrl) {
+            throw new Error("Add your Supabase project URL first.");
+        }
+
+        localStorage.setItem("supabaseUrl", supabaseUrl);
+        return supabaseUrl;
+    }
+
+    function resetTopics() {
+        takeList = [];
+        takeParent.innerHTML = "";
+    }
+
+    function setStatus(message) {
+        statusMessage.textContent = message;
+    }
 
     function goToDebate(event){
         // Id of button clicked
@@ -26,14 +73,14 @@
 
         //Open window to the debate arena, with the topic selected by user
         //alert("Starting Debate \n Debate Topic: " + takeList[event.target.id].childNodes[0].textContent)
-       
+
         document.cookie = "debateTopic="+takeList[event.target.id].childNodes[0].textContent
-        
+
         console.log(document.cookie);
         window.open("./debate.html", "_blank");
     }
 
-    function addPrompt(){
+    function addPrompt(topicText, authorText, createdAt){
         let selectButton = document.createElement("button");
         console.log(takeList.length);
         selectButton.id = takeList.length;
@@ -41,20 +88,108 @@
         selectButton.addEventListener("click", goToDebate);
 
         let takeTextContainer = document.createElement("h3");
-        takeTextContainer.textContent = takeTextInput.value;
+        takeTextContainer.textContent = topicText;
         takeTextContainer.style.textAlign = "center";
 
- 	    
+        let takeMetaContainer = document.createElement("p");
+        takeMetaContainer.className = "take-meta";
+        takeMetaContainer.textContent = authorText ? `Submitted by ${authorText}${createdAt ? ` on ${new Date(createdAt).toLocaleString()}` : ""}` : "";
+
+
         let div = document.createElement("div");
         div.className = "take-box";
         takeList.push(div);
 
         takeList[takeList.length-1].appendChild(takeTextContainer);
+        if (takeMetaContainer.textContent) {
+            takeList[takeList.length-1].appendChild(takeMetaContainer);
+        }
         takeList[takeList.length-1].appendChild(selectButton);
 
         takeParent.appendChild(takeList[takeList.length-1]);
     }
- 
-    takeButton.addEventListener("click", addPrompt);
+
+    async function loadFromSupabase() {
+        try {
+            var supabaseUrl = getSupabaseUrl();
+            setStatus("Loading from Supabase...");
+
+            var response = await fetch(`${supabaseUrl}/rest/v1/${SUPABASE_TABLE}?select=id,author,topic,created_at&order=created_at.desc`, {
+                method: "GET",
+                headers: {
+                    apikey: SUPABASE_ANON_KEY,
+                    Authorization: `Bearer ${SUPABASE_ANON_KEY}`
+                }
+            });
+
+            if (!response.ok) {
+                var errorText = await response.text();
+                throw new Error(errorText || "Supabase load failed.");
+            }
+
+            var rows = await response.json();
+            resetTopics();
+
+            if (!rows.length) {
+                setStatus("No debate topics found yet.");
+                return;
+            }
+
+            rows.forEach(function (row) {
+                addPrompt(row.topic, row.author, row.created_at);
+            });
+
+            setStatus(`Loaded ${rows.length} topic${rows.length === 1 ? "" : "s"} from Supabase.`);
+        } catch (error) {
+            setStatus(error instanceof Error ? error.message : "Something went wrong.");
+        }
+    }
+
+    async function submitTake(event) {
+        event.preventDefault();
+
+        var author = authorTextInput.value.trim();
+        var topic = takeTextInput.value.trim();
+
+        if (!author || !topic) {
+            setStatus("Add both an author and a topic first.");
+            return;
+        }
+
+        try {
+            var supabaseUrl = getSupabaseUrl();
+            setStatus("Saving to Supabase...");
+
+            var response = await fetch(`${supabaseUrl}/rest/v1/${SUPABASE_TABLE}`, {
+                method: "POST",
+                headers: {
+                    apikey: SUPABASE_ANON_KEY,
+                    Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+                    "Content-Type": "application/json",
+                    Prefer: "return=representation"
+                },
+                body: JSON.stringify({ author: author, topic: topic })
+            });
+
+            if (!response.ok) {
+                var errorText = await response.text();
+                throw new Error(errorText || "Supabase insert failed.");
+            }
+
+            await loadFromSupabase();
+            authorTextInput.value = "";
+            takeTextInput.value = "";
+            setStatus("Saved to Supabase.");
+        } catch (error) {
+            setStatus(error instanceof Error ? error.message : "Something went wrong.");
+        }
+    }
+
+    takeForm.addEventListener("submit", submitTake);
+    loadTakeButton.addEventListener("click", loadFromSupabase);
+
+    if (savedSupabaseUrl) {
+        loadFromSupabase();
+    }
 </script>
 </html>
