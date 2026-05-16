@@ -1,4 +1,14 @@
 h1{text-align: center;}
 h2{text-align: center;}
-#debaterCams{background-color: cyan;}
-#chatLogs{background-color: red;}
+
+#debaterCams{
+    background-color: cyan; 
+    width: 55vw; 
+    height: 400px;
+}
+
+#chatLog{
+    background-color: red; 
+    width:35vw;
+    height:400px;
+}
