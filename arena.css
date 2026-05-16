@@ -1,6 +1,10 @@
 h1{text-align: center;}
 h2{text-align: center;}
 
+#userContainer{
+    display: flex;
+}
+
 #debaterCams{
     background-color: cyan; 
     width: 55vw; 
