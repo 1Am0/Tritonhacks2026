@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Page Title</title>
+    <style>
+        div{border: 5px rebeccapurple ridge; width:400px}
+        h2{border: 2px red ridge; text-align: center;}
+    </style>
+</head>
+<body>
+
+    <div id="takeParent"></div>
+    <button id="submitTake">Submit a Take</button>
+    <input id="takeText" type="text">
+
+</body>
+<script>
+    var takeButton = document.getElementById("submitTake");
+    var takeParent = document.getElementById("takeParent"); 
+    var takeTextInput = document.getElementById("takeText")
+	var takeList = [];
+
+    function goToDebate(event){
+        console.log(event.target.id);
+        console.log(takeList[event.target.id].childNodes[0].textContent)
+        alert("Starting Debate \n Debate Topic:" + takeList[event.target.id].childNodes[0].textContent)
+    }
+
+    function addPrompt(){
+        let selectButton = document.createElement("button");
+        console.log(takeList.length);
+        selectButton.id = takeList.length;
+        selectButton.textContent = "Debate Now";
+        selectButton.addEventListener("click", goToDebate);
+
+        let takeTextContainer = document.createElement("h3");
+        takeTextContainer.textContent = takeTextInput.value;
+        takeTextContainer.style.textAlign = "center";
+
+ 	    takeList.push(document.createElement("div"));
+
+        takeList[takeList.length-1].appendChild(takeTextContainer);
+        takeList[takeList.length-1].appendChild(selectButton);
+
+        takeParent.appendChild(takeList[takeList.length-1]);
+    }
+ 
+    takeButton.addEventListener("click", addPrompt);
+</script>
+</html>
