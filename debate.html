@@ -108,7 +108,6 @@
         const cookieValue = document.cookie
             .split("; ")
             .find((entry) => entry.startsWith(`${name}=`));
-
         return cookieValue ? decodeURIComponent(cookieValue.slice(name.length + 1)) : "";
     }
 
@@ -128,7 +127,6 @@
         ? `Debate Topic Is: ${debateTopic}`
         : "Debate Topic Is: No topic selected";
 
-    // Supabase REST setup (mirrors index.html approach)
     const SUPABASE_TABLE_MESSAGES = "debate_messages";
     const SUPABASE_TABLE_PRESENCE = "debate_topic_presence";
     const SUPABASE_TABLE_AI_RESULTS = "debate_ai_results";
@@ -172,7 +170,6 @@
 
     function getSessionId() {
         const storageKey = "debate-session-id";
-        // prefer persisted cookie id so identity survives page reloads/joins
         const cookieId = getCookie('debateUserId');
         if (cookieId) {
             try { window.sessionStorage.setItem(storageKey, cookieId); } catch (e) {}
@@ -246,14 +243,10 @@
     function updateFactCheckMessageState(messageId) {
         const messageKey = messageId !== undefined && messageId !== null ? String(messageId) : null;
 
-        if (!messageKey) {
-            return;
-        }
+        if (!messageKey) return;
 
         const node = messageNodesById.get(messageKey);
-        if (!node) {
-            return;
-        }
+        if (!node) return;
 
         const selected = selectedFactCheckIds.has(messageKey);
         const verdict = factCheckVerdicts.get(messageKey);
@@ -270,7 +263,6 @@
                 ? 'Click to select this message.'
                 : '');
 
-        // render inline reason element for visibility
         const existingReason = node.querySelector('.fact-check-reason');
         if ((verdict === false || verdict === true) && reasonText) {
             if (existingReason) {
@@ -324,9 +316,7 @@
     function toggleFactCheckSelection(messageId) {
         const messageKey = messageId !== undefined && messageId !== null ? String(messageId) : null;
 
-        if (!factCheckMode || !messageKey) {
-            return;
-        }
+        if (!factCheckMode || !messageKey) return;
 
         if (selectedFactCheckIds.has(messageKey)) {
             selectedFactCheckIds.delete(messageKey);
@@ -338,14 +328,19 @@
         updateFactCheckControls();
     }
 
+    // FIX: correctly compute remaining messages.
+    // lastFactCheckMessageCount is the message count AT WHICH the last fact-check
+    // was run. A new one is available once (currentCount - lastFactCheckMessageCount)
+    // >= FACT_CHECK_INTERVAL, OR if no fact-check has ever run and currentCount >= FACT_CHECK_INTERVAL.
     function getFactCheckRemainingMessages() {
         const currentCount = allMessages.length;
-        if (currentCount < FACT_CHECK_INTERVAL) {
-            return FACT_CHECK_INTERVAL - currentCount;
+
+        if (!lastFactCheckMessageCount) {
+            return Math.max(0, FACT_CHECK_INTERVAL - currentCount);
         }
 
-        const remainingSinceLast = FACT_CHECK_INTERVAL - (currentCount - lastFactCheckMessageCount);
-        return Math.max(0, remainingSinceLast);
+        const messagesSinceLast = currentCount - lastFactCheckMessageCount;
+        return Math.max(0, FACT_CHECK_INTERVAL - messagesSinceLast);
     }
 
     function isFactCheckAvailable() {
@@ -428,9 +423,7 @@
     }
 
     function setReviewButtonState(messageCount, lastReviewCount) {
-        if (!requestAiReviewButton || !aiAvailabilityEl) {
-            return;
-        }
+        if (!requestAiReviewButton || !aiAvailabilityEl) return;
 
         const isAvailableNow = messageCount >= AI_REVIEW_INTERVAL && (!lastReviewCount || messageCount - lastReviewCount >= AI_REVIEW_INTERVAL);
         requestAiReviewButton.disabled = !isAvailableNow || aiAnalysisInFlight;
@@ -439,22 +432,15 @@
     }
 
     async function fetchAiRequestLock(messageCount) {
-        if (!debateTopic || messageCount < AI_REVIEW_INTERVAL) {
-            return null;
-        }
+        if (!debateTopic || messageCount < AI_REVIEW_INTERVAL) return null;
 
         const url = `${supabaseUrl}/rest/v1/${SUPABASE_TABLE_AI_REQUESTS}?select=topic,message_count,requested_by_session_id,requested_at&topic=eq.${encodeURIComponent(debateTopic)}&order=message_count.desc&limit=1`;
         const res = await fetch(url, {
             method: 'GET',
-            headers: {
-                apikey: supabaseAnonKey,
-                Authorization: `Bearer ${supabaseAnonKey}`
-            }
+            headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${supabaseAnonKey}` }
         });
 
-        if (!res.ok) {
-            throw new Error(await res.text());
-        }
+        if (!res.ok) throw new Error(await res.text());
 
         const rows = JSON.parse(await res.text() || '[]');
         return rows[0] || null;
@@ -462,9 +448,7 @@
 
     async function refreshAiReviewControls() {
         if (!configLoaded || !debateTopic) {
-            if (aiAvailabilityEl) {
-                aiAvailabilityEl.textContent = 'No topic selected.';
-            }
+            if (aiAvailabilityEl) aiAvailabilityEl.textContent = 'No topic selected.';
             return;
         }
 
@@ -479,40 +463,38 @@
     }
 
     async function fetchFactCheckLock(messageCount) {
-        if (!debateTopic || messageCount < FACT_CHECK_INTERVAL) {
-            return null;
-        }
+        if (!debateTopic || messageCount < FACT_CHECK_INTERVAL) return null;
 
         const url = `${supabaseUrl}/rest/v1/${SUPABASE_TABLE_FACT_CHECK_REQUESTS}?select=topic,message_count,requested_by_session_id,requested_at&topic=eq.${encodeURIComponent(debateTopic)}&order=message_count.desc&limit=1`;
         const res = await fetch(url, {
             method: 'GET',
-            headers: {
-                apikey: supabaseAnonKey,
-                Authorization: `Bearer ${supabaseAnonKey}`
-            }
+            headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${supabaseAnonKey}` }
         });
 
         if (!res.ok) {
-            throw new Error(await res.text());
+            const text = await res.text();
+            throw new Error(text);
         }
 
         const rows = JSON.parse(await res.text() || '[]');
         return rows[0] || null;
     }
 
+    // FIX: always trust the higher of persisted lock vs local state so they don't conflict.
     async function refreshFactCheckControls() {
         if (!configLoaded || !debateTopic) {
-            if (factCheckAvailabilityEl) {
-                factCheckAvailabilityEl.textContent = 'No topic selected.';
-            }
+            if (factCheckAvailabilityEl) factCheckAvailabilityEl.textContent = 'No topic selected.';
             return;
         }
 
         const currentCount = allMessages.length;
         try {
             const lock = await fetchFactCheckLock(currentCount).catch(() => null);
-            if (lock && Number(lock.message_count || 0) > lastFactCheckMessageCount) {
-                lastFactCheckMessageCount = Number(lock.message_count || 0);
+            if (lock) {
+                const lockCount = Number(lock.message_count || 0);
+                if (lockCount > lastFactCheckMessageCount) {
+                    lastFactCheckMessageCount = lockCount;
+                }
             }
             updateFactCheckControls();
         } catch (err) {
@@ -526,9 +508,7 @@
         const aiWinnerEl = document.getElementById('aiWinner');
         const aiParticipantsEl = document.getElementById('aiParticipants');
 
-        if (!aiSummaryEl || !aiWinnerEl || !aiParticipantsEl) {
-            return;
-        }
+        if (!aiSummaryEl || !aiWinnerEl || !aiParticipantsEl) return;
 
         if (!result) {
             aiSummaryEl.textContent = 'No analysis yet.';
@@ -575,14 +555,12 @@
     }
 
     function extractGroqContent(responseJson) {
-        // Groq response shapes vary; attempt to pull assistant text similarly to chat models.
         const choice = responseJson && responseJson.choices && responseJson.choices[0] ? responseJson.choices[0] : null;
         return choice && choice.message && typeof choice.message.content === 'string' ? choice.message.content : JSON.stringify(responseJson);
     }
 
     function stripCodeFences(text) {
         if (!text || typeof text !== 'string') return text;
-        // Remove fenced code blocks (```json ... ``` or ``` ... ```) and trim
         return text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
     }
 
@@ -590,15 +568,10 @@
         const url = `${supabaseUrl}/rest/v1/${SUPABASE_TABLE_AI_RESULTS}?select=topic,analyzed_message_count,result,updated_at&topic=eq.${encodeURIComponent(debateTopic)}&limit=1`;
         const res = await fetch(url, {
             method: 'GET',
-            headers: {
-                apikey: supabaseAnonKey,
-                Authorization: `Bearer ${supabaseAnonKey}`
-            }
+            headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${supabaseAnonKey}` }
         });
 
-        if (!res.ok) {
-            throw new Error(await res.text());
-        }
+        if (!res.ok) throw new Error(await res.text());
 
         const rows = JSON.parse(await res.text() || '[]');
         return rows[0] || null;
@@ -623,9 +596,7 @@
             body: JSON.stringify(payload)
         });
 
-        if (!res.ok) {
-            throw new Error(await res.text());
-        }
+        if (!res.ok) throw new Error(await res.text());
 
         return JSON.parse(await res.text() || '[]')[0] || null;
     }
@@ -634,20 +605,14 @@
         const url = `${supabaseUrl}/rest/v1/${SUPABASE_TABLE_PRESENCE}?select=session_id,display_name,stance&topic=eq.${encodeURIComponent(debateTopic)}`;
         const res = await fetch(url, {
             method: 'GET',
-            headers: {
-                apikey: supabaseAnonKey,
-                Authorization: `Bearer ${supabaseAnonKey}`
-            }
+            headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${supabaseAnonKey}` }
         });
 
-        if (!res.ok) {
-            throw new Error(await res.text());
-        }
+        if (!res.ok) throw new Error(await res.text());
 
         return JSON.parse(await res.text() || '[]');
     }
 
-    // Fetch persisted fact-checks for current topic
     async function fetchFactChecks() {
         if (!configLoaded || !debateTopic) return [];
         const url = `${supabaseUrl}/rest/v1/${SUPABASE_TABLE_FACT_CHECKS}?select=message_id,verdict,reason,message_count&topic=eq.${encodeURIComponent(debateTopic)}`;
@@ -659,12 +624,11 @@
             console.warn('fetchFactChecks failed:', await res.text());
             return [];
         }
-        const rows = JSON.parse(await res.text() || '[]');
-        return rows || [];
+        return JSON.parse(await res.text() || '[]') || [];
     }
 
+    // FIX: always take the highest message_count seen so interval math stays correct.
     function applyFactChecksRows(rows) {
-        let maxCount = lastFactCheckMessageCount || 0;
         let trueCount = 0, falseCount = 0;
         (rows || []).forEach(r => {
             if (!r || !r.message_id) return;
@@ -674,9 +638,12 @@
             if (r.reason) factCheckReasonsById.set(k, String(r.reason));
             if (verdict) trueCount++; else falseCount++;
             updateFactCheckMessageState(k);
-            if (Number(r.message_count || 0) > maxCount) maxCount = Number(r.message_count || 0);
+
+            const rowCount = Number(r.message_count || 0);
+            if (rowCount > lastFactCheckMessageCount) {
+                lastFactCheckMessageCount = rowCount;
+            }
         });
-        if (maxCount > lastFactCheckMessageCount) lastFactCheckMessageCount = maxCount;
         return { trueCount, falseCount };
     }
 
@@ -710,14 +677,11 @@
             return [];
         }
 
-        const rows = JSON.parse(await res.text() || '[]');
-        return rows || [];
+        return JSON.parse(await res.text() || '[]') || [];
     }
 
     async function analyzeReviewSnapshot(reviewCount, recentMessages) {
-        if (aiAnalysisInFlight || !debateTopic || !groqApiKey || !groqApiUrl) {
-            return;
-        }
+        if (aiAnalysisInFlight || !debateTopic || !groqApiKey || !groqApiUrl) return;
 
         aiAnalysisInFlight = true;
         setAiStatus(`Analyzing review at message #${reviewCount}...`);
@@ -731,28 +695,20 @@
                 return;
             }
 
-                const snapshotMessages = recentMessages || allMessages.slice(-10);
-                const [participants, latestMessages] = await Promise.all([
-                    fetchAiParticipants(),
-                    Promise.resolve(snapshotMessages),
-                ]);
+            const snapshotMessages = recentMessages || allMessages.slice(-10);
+            const [participants] = await Promise.all([fetchAiParticipants()]);
 
-            const prompt = `You are scoring a live debate.\nTopic: ${debateTopic}\n\nParticipants:\n${JSON.stringify(participants, null, 2)}\n\nLast 10 messages only:\n${JSON.stringify(recentMessages, null, 2)}\n\nTask:\n- For each participant, estimate how persuaded they appear to be by the opposing side.\n- Return a percentage from 0 to 100 for each participant, where 0 = not moved at all and 100 = fully moved.\n- Use the participant's explicit stance if present. If stance is missing, infer it from the conversation.\n- Identify the current winner as the participant whose arguments appear to be persuading others the most.\n- Return JSON only in this shape:\n{\n  \"topic\": \"...\",\n  \"winner_session_id\": \"...\",\n  \"winner_display_name\": \"...\",\n  \"summary\": \"...\",\n  \"participants\": [\n    {\n      \"session_id\": \"...\",\n      \"display_name\": \"...\",\n      \"stance\": \"agree|disagree|null\",\n      \"moved_percentage\": 0,\n      \"reason\": \"...\"\n    }\n  ]\n}\n`;
+            const prompt = `You are scoring a live debate.\nTopic: ${debateTopic}\n\nParticipants:\n${JSON.stringify(participants, null, 2)}\n\nLast 10 messages only:\n${JSON.stringify(snapshotMessages, null, 2)}\n\nTask:\n- For each participant, estimate how persuaded they appear to be by the opposing side.\n- Return a percentage from 0 to 100 for each participant, where 0 = not moved at all and 100 = fully moved.\n- Use the participant's explicit stance if present. If stance is missing, infer it from the conversation.\n- Identify the current winner as the participant whose arguments appear to be persuading others the most.\n- Return JSON only in this shape:\n{\n  \"topic\": \"...\",\n  \"winner_session_id\": \"...\",\n  \"winner_display_name\": \"...\",\n  \"summary\": \"...\",\n  \"participants\": [\n    {\n      \"session_id\": \"...\",\n      \"display_name\": \"...\",\n      \"stance\": \"agree|disagree|null\",\n      \"moved_percentage\": 0,\n      \"reason\": \"...\"\n    }\n  ]\n}\n`;
 
             const endpoint = `${groqApiUrl.replace(/\/+$/, '')}/chat/completions`;
             const aiResponse = await fetch(endpoint, {
                 method: 'POST',
-                headers: {
-                    Authorization: `Bearer ${groqApiKey}`,
-                    'Content-Type': 'application/json'
-                },
+                headers: { Authorization: `Bearer ${groqApiKey}`, 'Content-Type': 'application/json' },
                 body: JSON.stringify({ model: groqModel, messages: [{ role: 'user', content: prompt }], temperature: 0.2 })
             });
 
             const aiBody = await aiResponse.text();
-            if (!aiResponse.ok) {
-                throw new Error(aiBody || 'GROQ request failed');
-            }
+            if (!aiResponse.ok) throw new Error(aiBody || 'GROQ request failed');
 
             const raw = extractGroqContent(JSON.parse(aiBody)) || '';
             const cleaned = stripCodeFences(raw);
@@ -771,9 +727,7 @@
     }
 
     async function requestAiReview() {
-        if (!configLoaded || !debateTopic) {
-            return;
-        }
+        if (!configLoaded || !debateTopic) return;
 
         const currentCount = allMessages.length;
         const lock = await fetchAiRequestLock(currentCount).catch(() => null);
@@ -818,7 +772,6 @@
                 await refreshAiReviewControls();
                 return;
             }
-
             throw new Error(bodyText || 'Failed to claim AI review slot');
         }
 
@@ -827,15 +780,14 @@
     }
 
     function buildFactCheckPrompt(selectedMessages) {
-                // include full conversation context so the model can judge claims with context
-                const conv = (allMessages || []).map((m) => ({
-                        message_id: String(m.id),
-                        author: m.author || 'Anon',
-                        message: m.message,
-                        created_at: m.created_at
-                }));
+        const conv = (allMessages || []).map((m) => ({
+            message_id: String(m.id),
+            author: m.author || 'Anon',
+            message: m.message,
+            created_at: m.created_at
+        }));
 
-                return `You are fact-checking debate messages with full conversation context.
+        return `You are fact-checking debate messages with full conversation context.
 Topic: ${debateTopic}
 
 Conversation (most recent last):
@@ -843,11 +795,11 @@ ${JSON.stringify(conv, null, 2)}
 
 Messages to fact-check (subset):
 ${JSON.stringify(selectedMessages.map((item) => ({
-                        message_id: String(item.id),
-                        author: item.author || 'Anon',
-                        message: item.message,
-                        created_at: item.created_at
-                })), null, 2)}
+            message_id: String(item.id),
+            author: item.author || 'Anon',
+            message: item.message,
+            created_at: item.created_at
+        })), null, 2)}
 
 Important:
 - Use the conversation context above when judging each selected message. Consider preceding messages, replies, and any clarifying information.
@@ -886,21 +838,14 @@ Return this shape:
 
         (results || []).forEach((result) => {
             const messageKey = result && result.message_id !== undefined && result.message_id !== null ? String(result.message_id) : '';
-            if (!messageKey || !selectedFactCheckIds.has(messageKey)) {
-                return;
-            }
+            if (!messageKey || !selectedFactCheckIds.has(messageKey)) return;
 
             const verdict = result.verdict === true || result.verdict === 'true' || result.verdict === 1 || result.verdict === '1';
             factCheckVerdicts.set(messageKey, verdict);
-            if (result.reason) {
-                factCheckReasonsById.set(messageKey, String(result.reason));
-            }
+            if (result.reason) factCheckReasonsById.set(messageKey, String(result.reason));
 
-            if (verdict) {
-                trueCount += 1;
-            } else {
-                falseCount += 1;
-            }
+            if (verdict) trueCount += 1;
+            else falseCount += 1;
 
             updateFactCheckMessageState(messageKey);
         });
@@ -909,9 +854,7 @@ Return this shape:
     }
 
     async function runFactCheck() {
-        if (!configLoaded || !debateTopic || !groqApiKey || !groqApiUrl) {
-            return;
-        }
+        if (!configLoaded || !debateTopic || !groqApiKey || !groqApiUrl) return;
 
         if (!factCheckMode || selectedFactCheckIds.size === 0) {
             setFactCheckStatus('Select one or more messages first.');
@@ -936,7 +879,6 @@ Return this shape:
         setFactCheckStatus(`Claiming fact-check slot for ${allMessages.length} messages...`);
         updateFactCheckControls();
 
-        // Attempt to claim the fact-check slot (so only one client runs it)
         try {
             const claimRes = await fetch(`${supabaseUrl}/rest/v1/${SUPABASE_TABLE_FACT_CHECK_REQUESTS}`, {
                 method: 'POST',
@@ -957,7 +899,6 @@ Return this shape:
             if (!claimRes.ok) {
                 const bodyText = await claimRes.text();
                 if (/duplicate key|23505|conflict/i.test(bodyText)) {
-                    // someone else already claimed; fetch persisted results and apply
                     setFactCheckStatus('Someone already requested this fact-check. Applying shared results if available...');
                     const persisted = await fetchFactChecks().catch(() => []);
                     if (persisted && persisted.length) {
@@ -977,7 +918,6 @@ Return this shape:
             setFactCheckStatus(`Fact-checking ${selectedMessages.length} message${selectedMessages.length === 1 ? '' : 's'} with Groq...`);
             updateFactCheckControls();
         } catch (claimErr) {
-            // Provide more actionable feedback when claim fails (missing table, RLS, permission issues)
             console.warn('Claiming fact-check slot failed:', claimErr);
             const msg = String(claimErr && claimErr.message ? claimErr.message : claimErr);
             if (/relation\s+"?debate_fact_check_requests"?/i.test(msg) || /does not exist/i.test(msg)) {
@@ -996,10 +936,7 @@ Return this shape:
             const endpoint = `${groqApiUrl.replace(/\/+$/, '')}/chat/completions`;
             const response = await fetch(endpoint, {
                 method: 'POST',
-                headers: {
-                    Authorization: `Bearer ${groqApiKey}`,
-                    'Content-Type': 'application/json'
-                },
+                headers: { Authorization: `Bearer ${groqApiKey}`, 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     model: groqFactCheckModel,
                     messages: [{ role: 'user', content: buildFactCheckPrompt(selectedMessages) }],
@@ -1008,16 +945,13 @@ Return this shape:
             });
 
             const responseText = await response.text();
-            if (!response.ok) {
-                throw new Error(responseText || 'GROQ fact check request failed');
-            }
+            if (!response.ok) throw new Error(responseText || 'GROQ fact check request failed');
 
             const raw = extractGroqContent(JSON.parse(responseText)) || '';
             const cleaned = stripCodeFences(raw);
             const parsed = JSON.parse(cleaned || '{}');
             const results = Array.isArray(parsed.results) ? parsed.results : [];
 
-            // persist shared fact-check results
             const saved = await upsertFactCheckResults(results, allMessages.length).catch(err => {
                 console.warn('upsertFactCheckResults failed:', err);
                 return [];
@@ -1027,7 +961,6 @@ Return this shape:
             if (saved && saved.length) {
                 counts = applyFactChecksRows(saved);
             } else {
-                // fallback to local application
                 counts = applyFactCheckResults(results);
                 lastFactCheckMessageCount = allMessages.length;
             }
@@ -1050,19 +983,13 @@ Return this shape:
             if (!configLoaded) await loadSupabaseConfig();
             setChatStatus('Loading messages...');
 
-            // Filter by topic text (stored in cookie). Use REST filter: topic=eq.'...'
             const topicFilter = debateTopic ? `&topic=eq.${encodeURIComponent(debateTopic)}` : '';
             const url = `${supabaseUrl}/rest/v1/${SUPABASE_TABLE_MESSAGES}?select=id,author,message,created_at,session_id${topicFilter}&order=created_at.asc`;
-            console.log('loadMessages fetch url:', url);
             const res = await fetch(url, {
                 method: 'GET',
-                headers: {
-                    apikey: supabaseAnonKey,
-                    Authorization: `Bearer ${supabaseAnonKey}`
-                }
+                headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${supabaseAnonKey}` }
             });
             const text = await res.text();
-            console.log('loadMessages response status:', res.status, 'body:', text);
             if (!res.ok) throw new Error(text || 'Supabase load failed');
 
             const rows = JSON.parse(text || '[]');
@@ -1078,19 +1005,20 @@ Return this shape:
                 }
             });
             updateLastMessageLabel(rows);
-            // track last seen timestamp for polling
-            if (rows.length) {
-                lastTimestamp = rows[rows.length - 1].created_at;
-            }
-            setChatStatus(`Loaded ${rows.length} message${rows.length===1?'':'s'}.`);
+            if (rows.length) lastTimestamp = rows[rows.length - 1].created_at;
+
+            setChatStatus(`Loaded ${rows.length} message${rows.length === 1 ? '' : 's'}.`);
+
             const cachedAi = await fetchAiResultCache().catch(() => null);
             if (cachedAi && cachedAi.result) {
                 lastAnalyzedMessageCount = Number(cachedAi.analyzed_message_count || 0);
                 renderAiResult(cachedAi.result);
                 setAiStatus(`Showing cached analysis for ${lastAnalyzedMessageCount} messages.`);
             }
+
             await refreshAiReviewControls();
             await refreshFactCheckControls();
+
             const persistedFactChecks = await fetchFactChecks().catch(() => []);
             if (persistedFactChecks && persistedFactChecks.length) {
                 applyFactChecksRows(persistedFactChecks);
@@ -1101,6 +1029,7 @@ Return this shape:
             setChatStatus(err instanceof Error ? err.message : String(err));
         }
     }
+
     let lastTimestamp = null;
     let realtimeChannel = null;
     let aiRealtimeChannel = null;
@@ -1123,9 +1052,7 @@ Return this shape:
     let factCheckReasonsById = new Map();
 
     function getSupabaseClient() {
-        if (supabaseClient) {
-            return supabaseClient;
-        }
+        if (supabaseClient) return supabaseClient;
 
         if (!window.supabase || typeof window.supabase.createClient !== 'function') {
             throw new Error('Supabase client missing (CDN script not loaded)');
@@ -1135,131 +1062,91 @@ Return this shape:
         return supabaseClient;
     }
 
-    // Start a Supabase realtime subscription for new messages (INSERTs)
     function startRealtime() {
         try {
             if (!configLoaded) throw new Error('Supabase config not loaded');
             if (!debateTopic) throw new Error('No debate topic for realtime');
 
             const client = getSupabaseClient();
-            if (realtimeChannel) {
-                return Promise.resolve();
-            }
+            if (realtimeChannel) return Promise.resolve();
 
-            // Exact Supabase pattern, with message rendering inside the INSERT handler.
             const channel = client.channel('table_db_changes')
-                .on(
-                    'postgres_changes',
-                    { event: 'INSERT', schema: 'public', table: SUPABASE_TABLE_MESSAGES },
-                    (payload) => {
-                        console.log('New message in DB:', payload.new);
+                .on('postgres_changes', { event: 'INSERT', schema: 'public', table: SUPABASE_TABLE_MESSAGES }, (payload) => {
+                    const row = payload.new;
+                    if (debateTopic && row.topic !== debateTopic) return;
 
-                        const row = payload.new;
-                        if (debateTopic && row.topic !== debateTopic) {
-                            return;
-                        }
-
-                        if (appendMessage(row.author, row.message, row.created_at, row.session_id, row.id)) {
-                            allMessages.push(row);
-                            refreshAiReviewControls().catch(err => console.warn('review control refresh failed:', err));
-                            updateFactCheckControls();
-                            updateFactCheckControls();
-                        }
-                        lastTimestamp = row.created_at || lastTimestamp;
-                        lastMessageTimeEl.textContent = row.created_at ? new Date(row.created_at).toLocaleString() : lastMessageTimeEl.textContent;
+                    if (appendMessage(row.author, row.message, row.created_at, row.session_id, row.id)) {
+                        allMessages.push(row);
+                        refreshAiReviewControls().catch(err => console.warn('review control refresh failed:', err));
+                        updateFactCheckControls();
                     }
-                )
+                    lastTimestamp = row.created_at || lastTimestamp;
+                    lastMessageTimeEl.textContent = row.created_at ? new Date(row.created_at).toLocaleString() : lastMessageTimeEl.textContent;
+                })
                 .subscribe();
 
             realtimeChannel = channel;
 
             if (!aiRealtimeChannel) {
                 aiRealtimeChannel = client.channel('ai_debate_results')
-                    .on(
-                        'postgres_changes',
-                        { event: '*', schema: 'public', table: SUPABASE_TABLE_AI_RESULTS },
-                        (payload) => {
-                            const row = payload.new || payload.old;
-                            if (!row || row.topic !== debateTopic) {
-                                return;
-                            }
-
-                            lastAnalyzedMessageCount = Number(row.analyzed_message_count || 0);
-                            renderAiResult(row.result);
-                            setAiStatus(`Updated live for ${lastAnalyzedMessageCount} messages.`);
-                        }
-                    )
+                    .on('postgres_changes', { event: '*', schema: 'public', table: SUPABASE_TABLE_AI_RESULTS }, (payload) => {
+                        const row = payload.new || payload.old;
+                        if (!row || row.topic !== debateTopic) return;
+                        lastAnalyzedMessageCount = Number(row.analyzed_message_count || 0);
+                        renderAiResult(row.result);
+                        setAiStatus(`Updated live for ${lastAnalyzedMessageCount} messages.`);
+                    })
                     .subscribe();
             }
 
             if (!aiRequestRealtimeChannel) {
                 aiRequestRealtimeChannel = client.channel('ai_review_requests')
-                    .on(
-                        'postgres_changes',
-                        { event: '*', schema: 'public', table: SUPABASE_TABLE_AI_REQUESTS },
-                        (payload) => {
-                            const row = payload.new || payload.old;
-                            if (!row || row.topic !== debateTopic) {
-                                return;
-                            }
-
-                            refreshAiReviewControls().catch(err => console.warn('review control refresh failed (realtime):', err));
-                        }
-                    )
+                    .on('postgres_changes', { event: '*', schema: 'public', table: SUPABASE_TABLE_AI_REQUESTS }, (payload) => {
+                        const row = payload.new || payload.old;
+                        if (!row || row.topic !== debateTopic) return;
+                        refreshAiReviewControls().catch(err => console.warn('review control refresh failed (realtime):', err));
+                    })
                     .subscribe();
             }
 
             if (!factCheckRequestRealtimeChannel) {
                 factCheckRequestRealtimeChannel = client.channel('fact_check_requests')
-                    .on(
-                        'postgres_changes',
-                        { event: '*', schema: 'public', table: SUPABASE_TABLE_FACT_CHECK_REQUESTS },
-                        (payload) => {
-                            const row = payload.new || payload.old;
-                            if (!row || row.topic !== debateTopic) return;
-                            refreshFactCheckControls().catch(err => console.warn('fact-check control refresh failed (realtime):', err));
-                        }
-                    )
+                    .on('postgres_changes', { event: '*', schema: 'public', table: SUPABASE_TABLE_FACT_CHECK_REQUESTS }, (payload) => {
+                        const row = payload.new || payload.old;
+                        if (!row || row.topic !== debateTopic) return;
+                        refreshFactCheckControls().catch(err => console.warn('fact-check control refresh failed (realtime):', err));
+                    })
                     .subscribe();
             }
 
             if (!factCheckRealtimeChannel) {
                 factCheckRealtimeChannel = client.channel('fact_check_changes')
-                    .on(
-                        'postgres_changes',
-                        { event: '*', schema: 'public', table: SUPABASE_TABLE_FACT_CHECKS },
-                        (payload) => {
-                            try {
-                                const row = payload.new || payload.old;
-                                if (!row || row.topic !== debateTopic) return;
-                                applyFactChecksRows([row]);
-                                refreshAllFactCheckMessageStates();
-                                updateFactCheckControls();
-                            } catch (e) {
-                                console.warn('fact-check realtime handler error', e);
-                            }
+                    .on('postgres_changes', { event: '*', schema: 'public', table: SUPABASE_TABLE_FACT_CHECKS }, (payload) => {
+                        try {
+                            const row = payload.new || payload.old;
+                            if (!row || row.topic !== debateTopic) return;
+                            applyFactChecksRows([row]);
+                            refreshAllFactCheckMessageStates();
+                            updateFactCheckControls();
+                        } catch (e) {
+                            console.warn('fact-check realtime handler error', e);
                         }
-                    )
+                    })
                     .subscribe();
             }
 
             if (!presenceRealtimeChannel) {
                 presenceRealtimeChannel = client.channel('presence_changes')
-                    .on(
-                        'postgres_changes',
-                        { event: '*', schema: 'public', table: SUPABASE_TABLE_PRESENCE },
-                        (payload) => {
-                            try {
-                                const row = payload.new || payload.old;
-                                if (!row) return;
-                                if (debateTopic && row.topic !== debateTopic) return;
-                                // On any presence change, refresh the online count quickly
-                                refreshPresenceCount().catch(err => console.warn('presence refresh failed (realtime):', err));
-                            } catch (e) {
-                                console.warn('presence realtime handler error', e);
-                            }
+                    .on('postgres_changes', { event: '*', schema: 'public', table: SUPABASE_TABLE_PRESENCE }, (payload) => {
+                        try {
+                            const row = payload.new || payload.old;
+                            if (!row) return;
+                            if (debateTopic && row.topic !== debateTopic) return;
+                            refreshPresenceCount().catch(err => console.warn('presence refresh failed (realtime):', err));
+                        } catch (e) {
+                            console.warn('presence realtime handler error', e);
                         }
-                    )
+                    })
                     .subscribe();
             }
 
@@ -1302,13 +1189,10 @@ Return this shape:
         factCheckClearButton.addEventListener('click', () => clearFactCheckSelections());
     }
 
-    // show participant info from cookies
     updateParticipantInfo();
 
     async function upsertPresence() {
-        if (!configLoaded || !debateTopic) {
-            return;
-        }
+        if (!configLoaded || !debateTopic) return;
 
         const payload = {
             topic: debateTopic,
@@ -1329,9 +1213,7 @@ Return this shape:
             body: JSON.stringify(payload)
         });
 
-        if (!res.ok) {
-            throw new Error(await res.text());
-        }
+        if (!res.ok) throw new Error(await res.text());
     }
 
     async function refreshPresenceCount() {
@@ -1346,15 +1228,10 @@ Return this shape:
 
         const res = await fetch(url, {
             method: 'GET',
-            headers: {
-                apikey: supabaseAnonKey,
-                Authorization: `Bearer ${supabaseAnonKey}`
-            }
+            headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${supabaseAnonKey}` }
         });
 
-        if (!res.ok) {
-            throw new Error(await res.text());
-        }
+        if (!res.ok) throw new Error(await res.text());
 
         const rows = JSON.parse(await res.text() || '[]');
         updateOnlineCountLabel(rows.length);
@@ -1380,13 +1257,8 @@ Return this shape:
             refreshPresenceCount().catch(err => console.warn('presence refresh failed:', err));
         }, 5000);
 
-        // presence updates triggered from cookie changes (set by homepage modal)
-
         window.addEventListener('beforeunload', () => {
-            if (!configLoaded || !debateTopic) {
-                return;
-            }
-
+            if (!configLoaded || !debateTopic) return;
             const url = `${supabaseUrl}/rest/v1/${SUPABASE_TABLE_PRESENCE}?topic=eq.${encodeURIComponent(debateTopic)}&session_id=eq.${encodeURIComponent(sessionId)}`;
             navigator.sendBeacon?.(url, new Blob([], { type: 'application/json' }));
         });
@@ -1406,9 +1278,6 @@ Return this shape:
             if (!configLoaded) await loadSupabaseConfig();
             setChatStatus('Sending...');
 
-            // Try to include session_id. If the DB/schema doesn't have that column yet
-            // PostgREST may return an error like "Could not find the 'session_id' column".
-            // In that case retry the insert without session_id so sending still works.
             const url = `${supabaseUrl}/rest/v1/${SUPABASE_TABLE_MESSAGES}`;
             const baseHeaders = {
                 apikey: supabaseAnonKey,
@@ -1421,8 +1290,6 @@ Return this shape:
             let res = await fetch(url, { method: 'POST', headers: baseHeaders, body: JSON.stringify(payload) });
             if (!res.ok) {
                 const bodyText = await res.text();
-                console.warn('sendMessage initial POST failed:', res.status, bodyText);
-                // If failure mentions missing session_id column, retry without it
                 if (/session_id|Could not find the 'session_id' column/i.test(bodyText)) {
                     payload = { author: author || null, message: message, topic: debateTopic || null };
                     res = await fetch(url, { method: 'POST', headers: baseHeaders, body: JSON.stringify(payload) });
@@ -1443,9 +1310,8 @@ Return this shape:
 
     messageForm.addEventListener('submit', sendMessage);
 
-    // initial load: messages -> realtime subscribe
-    loadSupabaseConfig().then(function(){
-        loadMessages().then(function(){
+    loadSupabaseConfig().then(function () {
+        loadMessages().then(function () {
             startRealtime().then(() => {
                 startPresenceTracking();
             }).catch((err) => {
@@ -1453,6 +1319,6 @@ Return this shape:
                 startPresenceTracking();
             });
         });
-    }).catch(err => setChatStatus(err instanceof Error?err.message:String(err)));
+    }).catch(err => setChatStatus(err instanceof Error ? err.message : String(err)));
 </script>
 </html>
