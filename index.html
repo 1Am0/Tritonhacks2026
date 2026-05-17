@@ -206,6 +206,16 @@
         // save cookies
         setCookie('debateName', name, 365);
         setCookie('debateStance', stance, 365);
+        // ensure persistent user id so rejoined clients keep "own" messages
+        try {
+            const existingUid = getCookie('debateUserId');
+            if (!existingUid) {
+                const newUid = (window.crypto && window.crypto.randomUUID) ? window.crypto.randomUUID() : `user-${Math.random().toString(36).slice(2)}-${Date.now()}`;
+                setCookie('debateUserId', newUid, 3650);
+            }
+        } catch (e) {
+            // ignore cookie failures
+        }
         // also keep homepage creator name in sync
         authorTextInput.value = name;
         // store topic and open debate

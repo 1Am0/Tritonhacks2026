@@ -112,6 +112,16 @@
         return cookieValue ? decodeURIComponent(cookieValue.slice(name.length + 1)) : "";
     }
 
+    function setCookie(name, value, days) {
+        let expires = '';
+        if (days) {
+            const d = new Date();
+            d.setTime(d.getTime() + (days * 24 * 60 * 60 * 1000));
+            expires = '; expires=' + d.toUTCString();
+        }
+        document.cookie = name + '=' + encodeURIComponent(value || '') + expires + '; path=/';
+    }
+
     const debateTopic = getCookie("debateTopic");
     const topicKey = debateTopic || "no-topic";
     topicDisplay.textContent = debateTopic
@@ -123,6 +133,7 @@
     const SUPABASE_TABLE_PRESENCE = "debate_topic_presence";
     const SUPABASE_TABLE_AI_RESULTS = "debate_ai_results";
     const SUPABASE_TABLE_AI_REQUESTS = "debate_ai_requests";
+    const SUPABASE_TABLE_FACT_CHECKS = "debate_fact_checks";
     const AI_REVIEW_INTERVAL = 10;
     const FACT_CHECK_INTERVAL = 5;
     const SUPABASE_ENV = window.SUPABASE_ENV || {};
@@ -160,13 +171,21 @@
 
     function getSessionId() {
         const storageKey = "debate-session-id";
+        // prefer persisted cookie id so identity survives page reloads/joins
+        const cookieId = getCookie('debateUserId');
+        if (cookieId) {
+            try { window.sessionStorage.setItem(storageKey, cookieId); } catch (e) {}
+            return cookieId;
+        }
+
         let existing = window.sessionStorage.getItem(storageKey);
 
         if (!existing) {
             existing = (window.crypto && window.crypto.randomUUID)
                 ? window.crypto.randomUUID()
                 : `sess-${Math.random().toString(36).slice(2)}-${Date.now()}`;
-            window.sessionStorage.setItem(storageKey, existing);
+            try { window.sessionStorage.setItem(storageKey, existing); } catch (e) {}
+            try { setCookie('debateUserId', existing, 3650); } catch (e) {}
         }
 
         return existing;
@@ -243,13 +262,27 @@
         node.classList.toggle('fact-check-false', verdict === false);
         node.classList.toggle('fact-check-true', verdict === true);
         node.style.cursor = factCheckMode ? 'pointer' : 'default';
-        node.title = verdict === false && factCheckReasonsById.get(messageKey)
-            ? factCheckReasonsById.get(messageKey)
-            : selected && factCheckMode
-                ? 'Click to deselect this message.'
-                : factCheckMode
-                    ? 'Click to select this message.'
-                    : '';
+        const reasonText = factCheckReasonsById.get(messageKey) || '';
+        node.title = reasonText || (selected && factCheckMode
+            ? 'Click to deselect this message.'
+            : factCheckMode
+                ? 'Click to select this message.'
+                : '');
+
+        // render inline reason element for visibility
+        const existingReason = node.querySelector('.fact-check-reason');
+        if ((verdict === false || verdict === true) && reasonText) {
+            if (existingReason) {
+                existingReason.textContent = reasonText;
+            } else {
+                const el = document.createElement('div');
+                el.className = 'fact-check-reason';
+                el.textContent = reasonText;
+                node.appendChild(el);
+            }
+        } else if (existingReason) {
+            existingReason.remove();
+        }
     }
 
     function refreshAllFactCheckMessageStates() {
@@ -570,6 +603,73 @@
         return JSON.parse(await res.text() || '[]');
     }
 
+    // Fetch persisted fact-checks for current topic
+    async function fetchFactChecks() {
+        if (!configLoaded || !debateTopic) return [];
+        const url = `${supabaseUrl}/rest/v1/${SUPABASE_TABLE_FACT_CHECKS}?select=message_id,verdict,reason,message_count&topic=eq.${encodeURIComponent(debateTopic)}`;
+        const res = await fetch(url, {
+            method: 'GET',
+            headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${supabaseAnonKey}` }
+        });
+        if (!res.ok) {
+            console.warn('fetchFactChecks failed:', await res.text());
+            return [];
+        }
+        const rows = JSON.parse(await res.text() || '[]');
+        return rows || [];
+    }
+
+    function applyFactChecksRows(rows) {
+        let maxCount = lastFactCheckMessageCount || 0;
+        let trueCount = 0, falseCount = 0;
+        (rows || []).forEach(r => {
+            if (!r || !r.message_id) return;
+            const k = String(r.message_id);
+            const verdict = r.verdict === true || r.verdict === 'true' || r.verdict === 1 || r.verdict === '1';
+            factCheckVerdicts.set(k, verdict);
+            if (r.reason) factCheckReasonsById.set(k, String(r.reason));
+            if (verdict) trueCount++; else falseCount++;
+            updateFactCheckMessageState(k);
+            if (Number(r.message_count || 0) > maxCount) maxCount = Number(r.message_count || 0);
+        });
+        if (maxCount > lastFactCheckMessageCount) lastFactCheckMessageCount = maxCount;
+        return { trueCount, falseCount };
+    }
+
+    async function upsertFactCheckResults(results, messageCount) {
+        if (!configLoaded || !debateTopic) return [];
+        const payload = (results || []).map(r => ({
+            topic: debateTopic,
+            message_id: String(r.message_id || r.messageId || ''),
+            verdict: (r.verdict === true || r.verdict === 'true' || r.verdict === 1 || r.verdict === '1'),
+            reason: r.reason || r.reason_text || null,
+            checked_by_session_id: sessionId,
+            checked_at: new Date().toISOString(),
+            message_count: Number(messageCount || 0)
+        })).filter(p => p.message_id);
+
+        if (!payload.length) return [];
+
+        const res = await fetch(`${supabaseUrl}/rest/v1/${SUPABASE_TABLE_FACT_CHECKS}?on_conflict=topic,message_id`, {
+            method: 'POST',
+            headers: {
+                apikey: supabaseAnonKey,
+                Authorization: `Bearer ${supabaseAnonKey}`,
+                'Content-Type': 'application/json',
+                Prefer: 'return=representation'
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (!res.ok) {
+            console.warn('upsertFactCheckResults failed:', await res.text());
+            return [];
+        }
+
+        const rows = JSON.parse(await res.text() || '[]');
+        return rows || [];
+    }
+
     async function analyzeReviewSnapshot(reviewCount, recentMessages) {
         if (aiAnalysisInFlight || !debateTopic || !groqApiKey || !groqApiUrl) {
             return;
@@ -805,8 +905,21 @@ Return this shape:
             const parsed = JSON.parse(cleaned || '{}');
             const results = Array.isArray(parsed.results) ? parsed.results : [];
 
-            const counts = applyFactCheckResults(results);
-            lastFactCheckMessageCount = allMessages.length;
+            // persist shared fact-check results
+            const saved = await upsertFactCheckResults(results, allMessages.length).catch(err => {
+                console.warn('upsertFactCheckResults failed:', err);
+                return [];
+            });
+
+            let counts = { trueCount: 0, falseCount: 0 };
+            if (saved && saved.length) {
+                counts = applyFactChecksRows(saved);
+            } else {
+                // fallback to local application
+                counts = applyFactCheckResults(results);
+                lastFactCheckMessageCount = allMessages.length;
+            }
+
             factCheckMode = false;
             selectedFactCheckIds.clear();
             refreshAllFactCheckMessageStates();
@@ -865,6 +978,10 @@ Return this shape:
                 setAiStatus(`Showing cached analysis for ${lastAnalyzedMessageCount} messages.`);
             }
             await refreshAiReviewControls();
+            const persistedFactChecks = await fetchFactChecks().catch(() => []);
+            if (persistedFactChecks && persistedFactChecks.length) {
+                applyFactChecksRows(persistedFactChecks);
+            }
             refreshAllFactCheckMessageStates();
             updateFactCheckControls();
         } catch (err) {
@@ -875,6 +992,7 @@ Return this shape:
     let realtimeChannel = null;
     let aiRealtimeChannel = null;
     let aiRequestRealtimeChannel = null;
+    let factCheckRealtimeChannel = null;
     let presenceRealtimeChannel = null;
     let supabaseClient = null;
     let allMessages = [];
@@ -977,6 +1095,26 @@ Return this shape:
                     .subscribe();
             }
 
+            if (!factCheckRealtimeChannel) {
+                factCheckRealtimeChannel = client.channel('fact_check_changes')
+                    .on(
+                        'postgres_changes',
+                        { event: '*', schema: 'public', table: SUPABASE_TABLE_FACT_CHECKS },
+                        (payload) => {
+                            try {
+                                const row = payload.new || payload.old;
+                                if (!row || row.topic !== debateTopic) return;
+                                applyFactChecksRows([row]);
+                                refreshAllFactCheckMessageStates();
+                                updateFactCheckControls();
+                            } catch (e) {
+                                console.warn('fact-check realtime handler error', e);
+                            }
+                        }
+                    )
+                    .subscribe();
+            }
+
             if (!presenceRealtimeChannel) {
                 presenceRealtimeChannel = client.channel('presence_changes')
                     .on(
@@ -1001,6 +1139,7 @@ Return this shape:
                 try { if (realtimeChannel) realtimeChannel.unsubscribe(); } catch (e) {}
                 try { if (aiRealtimeChannel) aiRealtimeChannel.unsubscribe(); } catch (e) {}
                 try { if (aiRequestRealtimeChannel) aiRequestRealtimeChannel.unsubscribe(); } catch (e) {}
+                try { if (factCheckRealtimeChannel) factCheckRealtimeChannel.unsubscribe(); } catch (e) {}
             });
 
             return Promise.resolve();

@@ -243,13 +243,30 @@ h2 {
 }
 
 .message.fact-check-false {
-	background: rgba(244, 63, 94, 0.14);
+	background: rgba(244, 63, 94, 0.12);
 	border-color: rgba(244, 63, 94, 0.45);
+	border-left: 4px solid var(--accent-red);
+	box-shadow: 0 3px 10px rgba(244,63,94,0.06) inset;
 }
 
 .message.fact-check-true {
-	background: rgba(16, 185, 129, 0.1);
+	background: rgba(16, 185, 129, 0.08);
 	border-color: rgba(16, 185, 129, 0.25);
+	border-left: 4px solid var(--accent-green);
+	box-shadow: 0 3px 10px rgba(16,185,129,0.04) inset;
+}
+
+.message .fact-check-reason {
+	display: block;
+	margin-top: 6px;
+	font-size: 0.82rem;
+	font-weight: 600;
+}
+.message.fact-check-false .fact-check-reason {
+	color: var(--accent-red);
+}
+.message.fact-check-true .fact-check-reason {
+	color: var(--accent-green);
 }
 
 .message .meta {
