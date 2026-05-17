@@ -56,8 +56,18 @@
             </div>
             <aside id="aiPanel" class="ai-panel">
                 <div class="ai-panel-header">
-                    <strong>AI Debate Readout</strong>
-                    <button id="requestAiReview" class="message-form-button" type="button">Request AI Review</button>
+                    <strong>AI Debate Tools</strong>
+                    <div class="ai-panel-actions">
+                        <button id="factCheckToggle" class="message-form-button secondary-button" type="button">Fact Check</button>
+                        <button id="requestAiReview" class="message-form-button" type="button">Request AI Review</button>
+                    </div>
+                </div>
+                <div id="factCheckAvailability" class="ai-meta">Fact check available in 5 messages.</div>
+                <div id="factCheckStatus" class="ai-status">Click Fact Check, then select messages in the chat.</div>
+                <div id="factCheckSelectionHint" class="ai-summary">Selected messages will be checked with Groq and false ones will turn red.</div>
+                <div class="fact-check-actions">
+                    <button id="factCheckRun" class="message-form-button" type="button">Run Fact Check</button>
+                    <button id="factCheckClear" class="message-form-button secondary-button" type="button">Clear Selection</button>
                 </div>
                 <div id="aiAvailability" class="ai-meta">Waiting for 10 messages...</div>
                 <div id="aiStatus" class="ai-status">No analysis yet.</div>
@@ -81,6 +91,12 @@
     const aiParticipantsEl = document.getElementById("aiParticipants");
     const requestAiReviewButton = document.getElementById("requestAiReview");
     const aiAvailabilityEl = document.getElementById("aiAvailability");
+    const factCheckToggleButton = document.getElementById("factCheckToggle");
+    const factCheckRunButton = document.getElementById("factCheckRun");
+    const factCheckClearButton = document.getElementById("factCheckClear");
+    const factCheckAvailabilityEl = document.getElementById("factCheckAvailability");
+    const factCheckStatusEl = document.getElementById("factCheckStatus");
+    const factCheckSelectionHintEl = document.getElementById("factCheckSelectionHint");
     const messagesEl = document.getElementById("messages");
     const messageForm = document.getElementById("messageForm");
     const messageInput = document.getElementById("messageInput");
@@ -108,12 +124,14 @@
     const SUPABASE_TABLE_AI_RESULTS = "debate_ai_results";
     const SUPABASE_TABLE_AI_REQUESTS = "debate_ai_requests";
     const AI_REVIEW_INTERVAL = 10;
+    const FACT_CHECK_INTERVAL = 5;
     const SUPABASE_ENV = window.SUPABASE_ENV || {};
     let supabaseUrl = "";
     let supabaseAnonKey = "";
     let groqApiKey = "";
     let groqApiUrl = "";
     let groqModel = 'llama-3.3-70b-versatile';
+    let groqFactCheckModel = 'llama-3.3-70b-versatile';
     let configLoaded = false;
     let sessionId = getSessionId();
     let presenceHeartbeatId = null;
@@ -127,6 +145,7 @@
         groqApiKey = envConfig.GROQ_API_KEY || envConfig.NEXT_PUBLIC_GROQ_API_KEY || "";
         groqApiUrl = envConfig.GROQ_API_URL || envConfig.NEXT_PUBLIC_GROQ_API_URL || "";
         groqModel = envConfig.GROQ_MODEL || envConfig.NEXT_PUBLIC_GROQ_MODEL || groqModel;
+        groqFactCheckModel = envConfig.GROQ_FACT_CHECK_MODEL || envConfig.NEXT_PUBLIC_GROQ_FACT_CHECK_MODEL || groqFactCheckModel;
 
         if (!supabaseUrl || !supabaseAnonKey || !groqApiKey || !groqApiUrl) {
             throw new Error("Supabase config is missing GROQ config in supabase-config.js.");
@@ -172,24 +191,165 @@
     }
 
     function appendMessage(author, text, createdAt, messageSessionId, messageId) {
-        if (messageId && messageIds.has(messageId)) {
+        const messageKey = messageId !== undefined && messageId !== null ? String(messageId) : null;
+
+        if (messageKey && messageIds.has(messageKey)) {
             return false;
         }
 
-        if (messageId) {
-            messageIds.add(messageId);
+        if (messageKey) {
+            messageIds.add(messageKey);
         }
 
         const wrapper = document.createElement('div');
         const isOwnMessage = messageSessionId && messageSessionId === sessionId;
         wrapper.className = 'message' + (isOwnMessage ? ' own' : '');
+        if (messageKey) {
+            wrapper.dataset.messageId = messageKey;
+            messageNodesById.set(messageKey, wrapper);
+            wrapper.addEventListener('click', () => {
+                if (factCheckMode) {
+                    toggleFactCheckSelection(messageKey);
+                }
+            });
+        }
 
         const authorHtml = `<strong>${author || 'Anon'}</strong>${isOwnMessage ? ' <span style="font-size:0.75rem;color:#2e7d32;">(you)</span>' : ''}`;
         const timeHtml = `<span class="meta">${createdAt ? new Date(createdAt).toLocaleTimeString() : ''}</span>`;
         wrapper.innerHTML = `${authorHtml}: ${escapeHtml(text)} ${timeHtml}`;
+        updateFactCheckMessageState(messageKey);
         messagesEl.appendChild(wrapper);
         messagesEl.scrollTop = messagesEl.scrollHeight;
         return true;
+    }
+
+    function updateFactCheckMessageState(messageId) {
+        const messageKey = messageId !== undefined && messageId !== null ? String(messageId) : null;
+
+        if (!messageKey) {
+            return;
+        }
+
+        const node = messageNodesById.get(messageKey);
+        if (!node) {
+            return;
+        }
+
+        const selected = selectedFactCheckIds.has(messageKey);
+        const verdict = factCheckVerdicts.get(messageKey);
+
+        node.classList.toggle('fact-check-target', factCheckMode);
+        node.classList.toggle('fact-check-selected', selected);
+        node.classList.toggle('fact-check-false', verdict === false);
+        node.classList.toggle('fact-check-true', verdict === true);
+        node.style.cursor = factCheckMode ? 'pointer' : 'default';
+        node.title = verdict === false && factCheckReasonsById.get(messageKey)
+            ? factCheckReasonsById.get(messageKey)
+            : selected && factCheckMode
+                ? 'Click to deselect this message.'
+                : factCheckMode
+                    ? 'Click to select this message.'
+                    : '';
+    }
+
+    function refreshAllFactCheckMessageStates() {
+        messageNodesById.forEach((_, messageId) => updateFactCheckMessageState(messageId));
+    }
+
+    function clearFactCheckSelections() {
+        selectedFactCheckIds.clear();
+        refreshAllFactCheckMessageStates();
+        updateFactCheckControls();
+    }
+
+    function clearFactCheckVerdicts() {
+        factCheckVerdicts.clear();
+        factCheckReasonsById.clear();
+        refreshAllFactCheckMessageStates();
+    }
+
+    function toggleFactCheckMode(forceState) {
+        const availableNow = isFactCheckAvailable();
+        factCheckMode = typeof forceState === 'boolean' ? forceState : !factCheckMode;
+
+        if (factCheckMode && !availableNow) {
+            factCheckMode = false;
+            setFactCheckStatus(`Fact check is available in ${getFactCheckRemainingMessages()} message${getFactCheckRemainingMessages() === 1 ? '' : 's'}.`);
+            updateFactCheckControls();
+            return;
+        }
+
+        if (!factCheckMode) {
+            selectedFactCheckIds.clear();
+        }
+
+        refreshAllFactCheckMessageStates();
+        updateFactCheckControls();
+    }
+
+    function toggleFactCheckSelection(messageId) {
+        const messageKey = messageId !== undefined && messageId !== null ? String(messageId) : null;
+
+        if (!factCheckMode || !messageKey) {
+            return;
+        }
+
+        if (selectedFactCheckIds.has(messageKey)) {
+            selectedFactCheckIds.delete(messageKey);
+        } else {
+            selectedFactCheckIds.add(messageKey);
+        }
+
+        updateFactCheckMessageState(messageKey);
+        updateFactCheckControls();
+    }
+
+    function getFactCheckRemainingMessages() {
+        const currentCount = allMessages.length;
+        if (currentCount < FACT_CHECK_INTERVAL) {
+            return FACT_CHECK_INTERVAL - currentCount;
+        }
+
+        const remainingSinceLast = FACT_CHECK_INTERVAL - (currentCount - lastFactCheckMessageCount);
+        return Math.max(0, remainingSinceLast);
+    }
+
+    function isFactCheckAvailable() {
+        return getFactCheckRemainingMessages() === 0;
+    }
+
+    function setFactCheckStatus(text) {
+        if (factCheckStatusEl) {
+            factCheckStatusEl.textContent = text;
+        }
+    }
+
+    function updateFactCheckControls() {
+        const remaining = getFactCheckRemainingMessages();
+        const availableNow = remaining === 0;
+
+        if (factCheckAvailabilityEl) {
+            factCheckAvailabilityEl.textContent = getFactCheckAvailabilityText(allMessages.length, lastFactCheckMessageCount);
+        }
+
+        if (factCheckToggleButton) {
+            factCheckToggleButton.textContent = factCheckMode ? 'Exit Fact Check' : (availableNow ? 'Fact Check Messages' : `Fact Check in ${remaining} message${remaining === 1 ? '' : 's'}`);
+            factCheckToggleButton.disabled = !factCheckMode && !availableNow;
+        }
+
+        if (factCheckRunButton) {
+            factCheckRunButton.disabled = !factCheckMode || selectedFactCheckIds.size === 0 || factCheckInFlight;
+        }
+
+        if (factCheckClearButton) {
+            factCheckClearButton.disabled = selectedFactCheckIds.size === 0 && !factCheckMode;
+        }
+
+        if (factCheckSelectionHintEl) {
+            factCheckSelectionHintEl.textContent = factCheckMode
+                ? `${selectedFactCheckIds.size} selected. Click messages to toggle selection.`
+                : 'Selected messages will be checked with Groq and false ones will turn red.';
+        }
     }
 
     function setAiStatus(text) {
@@ -201,19 +361,36 @@
 
     function getReviewAvailabilityText(messageCount, lastReviewCount) {
         if (messageCount < AI_REVIEW_INTERVAL) {
-            return `Available after ${AI_REVIEW_INTERVAL} messages.`;
+            return `Available in ${AI_REVIEW_INTERVAL - messageCount} message${AI_REVIEW_INTERVAL - messageCount === 1 ? '' : 's'}.`;
         }
 
         if (!lastReviewCount) {
             return `Review available now.`;
         }
 
-        const nextAllowed = lastReviewCount + AI_REVIEW_INTERVAL;
-        if (messageCount < nextAllowed) {
-            return `Review already requested at ${lastReviewCount} messages. Next request opens at ${nextAllowed}.`;
+        const remaining = Math.max(0, AI_REVIEW_INTERVAL - (messageCount - lastReviewCount));
+        if (remaining > 0) {
+            return `Review available in ${remaining} message${remaining === 1 ? '' : 's'}.`;
         }
 
-        return `Review available now (last review at ${lastReviewCount}).`;
+        return `Review available now.`;
+    }
+
+    function getFactCheckAvailabilityText(messageCount, lastFactCheckCount) {
+        if (messageCount < FACT_CHECK_INTERVAL) {
+            return `Fact check available in ${FACT_CHECK_INTERVAL - messageCount} message${FACT_CHECK_INTERVAL - messageCount === 1 ? '' : 's'}.`;
+        }
+
+        if (!lastFactCheckCount) {
+            return 'Fact check available now.';
+        }
+
+        const remaining = Math.max(0, FACT_CHECK_INTERVAL - (messageCount - lastFactCheckCount));
+        if (remaining > 0) {
+            return `Fact check available in ${remaining} message${remaining === 1 ? '' : 's'}.`;
+        }
+
+        return `Fact check available now (last fact check at ${lastFactCheckCount} messages).`;
     }
 
     function setReviewButtonState(messageCount, lastReviewCount) {
@@ -223,7 +400,7 @@
 
         const isAvailableNow = messageCount >= AI_REVIEW_INTERVAL && (!lastReviewCount || messageCount - lastReviewCount >= AI_REVIEW_INTERVAL);
         requestAiReviewButton.disabled = !isAvailableNow || aiAnalysisInFlight;
-        requestAiReviewButton.textContent = isAvailableNow ? 'Request AI Review' : 'AI Review Locked';
+        requestAiReviewButton.textContent = isAvailableNow ? 'Request AI Review' : 'Review Locked';
         aiAvailabilityEl.textContent = getReviewAvailabilityText(messageCount, lastReviewCount);
     }
 
@@ -459,13 +636,14 @@
         const lastReviewCount = lock ? Number(lock.message_count || 0) : 0;
 
         if (currentCount < AI_REVIEW_INTERVAL) {
-            setAiStatus(`Wait until ${AI_REVIEW_INTERVAL} messages before requesting a review.`);
+            setAiStatus(`Review available in ${AI_REVIEW_INTERVAL - currentCount} message${AI_REVIEW_INTERVAL - currentCount === 1 ? '' : 's'}.`);
             await refreshAiReviewControls();
             return;
         }
 
         if (lastReviewCount && currentCount - lastReviewCount < AI_REVIEW_INTERVAL) {
-            setAiStatus(`Review already requested at ${lastReviewCount} messages. Next request opens at ${lastReviewCount + AI_REVIEW_INTERVAL}.`);
+            const remaining = Math.max(0, AI_REVIEW_INTERVAL - (currentCount - lastReviewCount));
+            setAiStatus(`Review already requested. Available in ${remaining} message${remaining === 1 ? '' : 's'}.`);
             await refreshAiReviewControls();
             return;
         }
@@ -491,7 +669,8 @@
         if (!claimRes.ok) {
             const bodyText = await claimRes.text();
             if (/duplicate key|23505|conflict/i.test(bodyText)) {
-                setAiStatus(`Someone already requested the review for ${currentCount} messages. Everyone waits until ${currentCount + AI_REVIEW_INTERVAL}.`);
+                const remaining = Math.max(0, AI_REVIEW_INTERVAL - (currentCount - lastReviewCount));
+                setAiStatus(`Someone already requested this review. Available in ${remaining} message${remaining === 1 ? '' : 's'}.`);
                 await refreshAiReviewControls();
                 return;
             }
@@ -501,6 +680,144 @@
 
         setAiStatus(`Review requested for ${currentCount} messages. Analyzing now...`);
         await analyzeReviewSnapshot(currentCount, snapshot);
+    }
+
+    function buildFactCheckPrompt(selectedMessages) {
+        return `You are fact-checking debate messages.
+Topic: ${debateTopic}
+
+Messages to fact-check:
+${JSON.stringify(selectedMessages.map((item) => ({
+            message_id: String(item.id),
+            author: item.author || 'Anon',
+            message: item.message,
+            created_at: item.created_at
+        })), null, 2)}
+
+Rules:
+- Return only JSON.
+- Return one result per selected message.
+- verdict must be true or false.
+- Mark verdict true if the message is a correct factual statement or if it is just opinion / rhetoric without a factual claim.
+- Mark verdict false if it contains a materially incorrect factual claim.
+- Keep reasons short.
+
+Return this shape:
+{
+  "topic": "...",
+  "results": [
+    {
+      "message_id": "...",
+      "verdict": true,
+      "reason": "..."
+    }
+  ]
+}
+`;
+    }
+
+    function clearFactCheckVerdictsAndStyles() {
+        factCheckVerdicts.clear();
+        factCheckReasonsById.clear();
+        refreshAllFactCheckMessageStates();
+    }
+
+    function applyFactCheckResults(results) {
+        clearFactCheckVerdictsAndStyles();
+
+        let falseCount = 0;
+        let trueCount = 0;
+
+        (results || []).forEach((result) => {
+            const messageKey = result && result.message_id !== undefined && result.message_id !== null ? String(result.message_id) : '';
+            if (!messageKey || !selectedFactCheckIds.has(messageKey)) {
+                return;
+            }
+
+            const verdict = result.verdict === true || result.verdict === 'true' || result.verdict === 1 || result.verdict === '1';
+            factCheckVerdicts.set(messageKey, verdict);
+            if (result.reason) {
+                factCheckReasonsById.set(messageKey, String(result.reason));
+            }
+
+            if (verdict) {
+                trueCount += 1;
+            } else {
+                falseCount += 1;
+            }
+
+            updateFactCheckMessageState(messageKey);
+        });
+
+        return { trueCount, falseCount };
+    }
+
+    async function runFactCheck() {
+        if (!configLoaded || !debateTopic || !groqApiKey || !groqApiUrl) {
+            return;
+        }
+
+        if (!factCheckMode || selectedFactCheckIds.size === 0) {
+            setFactCheckStatus('Select one or more messages first.');
+            updateFactCheckControls();
+            return;
+        }
+
+        if (!isFactCheckAvailable()) {
+            setFactCheckStatus(`Fact check is available in ${getFactCheckRemainingMessages()} message${getFactCheckRemainingMessages() === 1 ? '' : 's'}.`);
+            updateFactCheckControls();
+            return;
+        }
+
+        const selectedMessages = allMessages.filter((item) => selectedFactCheckIds.has(String(item.id)));
+        if (!selectedMessages.length) {
+            setFactCheckStatus('No selected messages were found.');
+            updateFactCheckControls();
+            return;
+        }
+
+        factCheckInFlight = true;
+        setFactCheckStatus(`Fact-checking ${selectedMessages.length} message${selectedMessages.length === 1 ? '' : 's'} with Groq...`);
+        updateFactCheckControls();
+
+        try {
+            const endpoint = `${groqApiUrl.replace(/\/+$/, '')}/chat/completions`;
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${groqApiKey}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    model: groqFactCheckModel,
+                    messages: [{ role: 'user', content: buildFactCheckPrompt(selectedMessages) }],
+                    temperature: 0.1
+                })
+            });
+
+            const responseText = await response.text();
+            if (!response.ok) {
+                throw new Error(responseText || 'GROQ fact check request failed');
+            }
+
+            const raw = extractGroqContent(JSON.parse(responseText)) || '';
+            const cleaned = stripCodeFences(raw);
+            const parsed = JSON.parse(cleaned || '{}');
+            const results = Array.isArray(parsed.results) ? parsed.results : [];
+
+            const counts = applyFactCheckResults(results);
+            lastFactCheckMessageCount = allMessages.length;
+            factCheckMode = false;
+            selectedFactCheckIds.clear();
+            refreshAllFactCheckMessageStates();
+            setFactCheckStatus(`Fact check complete: ${counts.falseCount} false, ${counts.trueCount} true.`);
+        } catch (err) {
+            console.warn('Fact check failed:', err);
+            setFactCheckStatus(err instanceof Error ? err.message : String(err));
+        } finally {
+            factCheckInFlight = false;
+            updateFactCheckControls();
+        }
     }
 
     async function loadMessages() {
@@ -526,6 +843,9 @@
             const rows = JSON.parse(text || '[]');
             allMessages = [];
             messageIds = new Set();
+            messageNodesById = new Map();
+            selectedFactCheckIds.clear();
+            factCheckMode = false;
             messagesEl.innerHTML = '';
             rows.forEach(r => {
                 if (appendMessage(r.author, r.message, r.created_at, r.session_id, r.id)) {
@@ -545,6 +865,8 @@
                 setAiStatus(`Showing cached analysis for ${lastAnalyzedMessageCount} messages.`);
             }
             await refreshAiReviewControls();
+            refreshAllFactCheckMessageStates();
+            updateFactCheckControls();
         } catch (err) {
             setChatStatus(err instanceof Error ? err.message : String(err));
         }
@@ -557,9 +879,16 @@
     let supabaseClient = null;
     let allMessages = [];
     let messageIds = new Set();
+    let messageNodesById = new Map();
     let aiAnalysisInFlight = false;
     let lastAnalyzedMessageCount = 0;
     let latestAiResult = null;
+    let factCheckMode = false;
+    let factCheckInFlight = false;
+    let lastFactCheckMessageCount = 0;
+    let selectedFactCheckIds = new Set();
+    let factCheckVerdicts = new Map();
+    let factCheckReasonsById = new Map();
 
     function getSupabaseClient() {
         if (supabaseClient) {
@@ -601,6 +930,8 @@
                         if (appendMessage(row.author, row.message, row.created_at, row.session_id, row.id)) {
                             allMessages.push(row);
                             refreshAiReviewControls().catch(err => console.warn('review control refresh failed:', err));
+                            updateFactCheckControls();
+                            updateFactCheckControls();
                         }
                         lastTimestamp = row.created_at || lastTimestamp;
                         lastMessageTimeEl.textContent = row.created_at ? new Date(row.created_at).toLocaleString() : lastMessageTimeEl.textContent;
@@ -685,6 +1016,23 @@
                 setAiStatus(err instanceof Error ? err.message : String(err));
             });
         });
+    }
+
+    if (factCheckToggleButton) {
+        factCheckToggleButton.addEventListener('click', () => toggleFactCheckMode());
+    }
+
+    if (factCheckRunButton) {
+        factCheckRunButton.addEventListener('click', () => {
+            runFactCheck().catch((err) => {
+                console.warn('Fact check failed:', err);
+                setFactCheckStatus(err instanceof Error ? err.message : String(err));
+            });
+        });
+    }
+
+    if (factCheckClearButton) {
+        factCheckClearButton.addEventListener('click', () => clearFactCheckSelections());
     }
 
     // show participant info from cookies
@@ -820,6 +1168,7 @@
             await refreshPresenceCount();
             messageInput.value = '';
             setChatStatus('Sent.');
+            updateFactCheckControls();
         } catch (err) {
             setChatStatus(err instanceof Error ? err.message : String(err));
         }

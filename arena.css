@@ -233,6 +233,25 @@ h2 {
 	background: rgba(148, 163, 184, 0.1);
 }
 
+.message.fact-check-target {
+	cursor: pointer;
+}
+
+.message.fact-check-selected {
+	border-color: rgba(34, 211, 238, 0.55);
+	box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.2) inset;
+}
+
+.message.fact-check-false {
+	background: rgba(244, 63, 94, 0.14);
+	border-color: rgba(244, 63, 94, 0.45);
+}
+
+.message.fact-check-true {
+	background: rgba(16, 185, 129, 0.1);
+	border-color: rgba(16, 185, 129, 0.25);
+}
+
 .message .meta {
 	float: right;
 	color: var(--foreground-subtle);
@@ -317,6 +336,17 @@ h2 {
 	transform: none;
 }
 
+.secondary-button {
+	background: rgba(148, 163, 184, 0.08);
+	border: 1px solid var(--border);
+	box-shadow: none;
+}
+
+.secondary-button:hover {
+	background: rgba(148, 163, 184, 0.14);
+	box-shadow: none;
+}
+
 #chatStatus {
 	margin: 0;
 	font-size: 0.75rem;
@@ -355,6 +385,13 @@ h2 {
 	color: var(--foreground);
 }
 
+.ai-panel-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	justify-content: flex-end;
+}
+
 .ai-meta,
 .ai-status,
 .ai-summary,
@@ -385,6 +422,13 @@ h2 {
 	background: rgba(16, 185, 129, 0.1);
 	border: 1px solid rgba(16, 185, 129, 0.2);
 	border-radius: var(--radius-md);
+}
+
+.fact-check-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	justify-content: flex-start;
 }
 
 .ai-participants {

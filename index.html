@@ -26,7 +26,7 @@
                 </div>
                 <div class="take-actions">
                     <button id="submitTake" type="submit">Create Debate</button>
-                    <button id="reloadTakes" type="button">Reload</button>
+                    <button id="reloadTakes" class="take-reload-button" type="button">Reload</button>
                 </div>
                 <p id="statusMessage" aria-live="polite"></p>
             </form>
@@ -38,23 +38,23 @@
 
     <!-- Modal for confirming debate join (name + stance) -->
     <div id="debateModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);align-items:center;justify-content:center;z-index:9999;">
-        <div style="background:var(--background-card);color:var(--foreground);padding:18px;border-radius:10px;min-width:320px;max-width:420px;border:1px solid var(--border);backdrop-filter:blur(12px)">
-            <h3 id="modalTopic" style="margin-top:0;font-size:1rem;color:#0f172a;">Confirm Debate</h3>
-            <div style="margin-bottom:8px;">
+        <div class="debate-modal-card">
+            <h3 id="modalTopic" class="debate-modal-title">Confirm Debate</h3>
+            <div class="debate-modal-field">
                 <label for="modalName">Your name</label>
-                <input id="modalName" type="text" style="width:100%;padding:8px;margin-top:6px;border-radius:6px;border:1px solid #cbd5e1;" />
+                <input id="modalName" class="debate-modal-input" type="text" />
             </div>
-            <div style="margin-bottom:12px;">
+            <div class="debate-modal-field">
                 <label for="modalStance">Your stance</label>
-                <select id="modalStance" style="width:100%;padding:8px;margin-top:6px;border-radius:6px;border:1px solid #cbd5e1;">
+                <select id="modalStance" class="debate-modal-input">
                     <option value="" disabled selected>Pick a side</option>
                     <option value="agree">Agree</option>
                     <option value="disagree">Disagree</option>
                 </select>
             </div>
-            <div style="display:flex;gap:8px;justify-content:flex-end;">
-                <button id="modalCancel" type="button" style="padding:8px 12px;border-radius:6px;border:1px solid #cbd5e1;background:#fff;">Cancel</button>
-                <button id="modalConfirm" type="button" style="padding:8px 12px;border-radius:6px;border:none;background:#2563eb;color:#fff;">Join Debate</button>
+            <div class="debate-modal-actions">
+                <button id="modalCancel" class="debate-modal-secondary" type="button">Cancel</button>
+                <button id="modalConfirm" class="debate-modal-primary" type="button">Join Debate</button>
             </div>
         </div>
     </div>

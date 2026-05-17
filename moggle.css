@@ -193,6 +193,108 @@ body {
 	box-shadow: 0 8px 20px rgba(59, 130, 246, 0.4);
 }
 
+.take-reload-button {
+	flex: 0 0 auto;
+	padding: 16px 18px;
+	background: rgba(148, 163, 184, 0.08) !important;
+	border: 1px solid var(--border) !important;
+	box-shadow: none !important;
+}
+
+.take-reload-button:hover {
+	background: rgba(148, 163, 184, 0.14) !important;
+	box-shadow: none !important;
+}
+
+.debate-modal-card {
+	background: var(--background-card);
+	color: var(--foreground);
+	padding: 18px;
+	border-radius: var(--radius-lg);
+	min-width: 320px;
+	max-width: 420px;
+	border: 1px solid var(--border);
+	backdrop-filter: blur(12px);
+	box-shadow: 0 24px 48px -12px rgba(0, 0, 0, 0.45);
+}
+
+.debate-modal-title {
+	margin: 0 0 14px;
+	font-size: 1rem;
+	color: var(--foreground);
+}
+
+.debate-modal-field {
+	margin-bottom: 12px;
+}
+
+.debate-modal-field label {
+	display: block;
+	margin-bottom: 6px;
+	font-size: 0.75rem;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+	color: var(--foreground-muted);
+}
+
+.debate-modal-input {
+	width: 100%;
+	padding: 10px 12px;
+	border-radius: var(--radius-md);
+	border: 1px solid var(--border-strong);
+	background: var(--background);
+	color: var(--foreground);
+	font-family: inherit;
+	font-size: 0.95rem;
+}
+
+.debate-modal-input:focus {
+	outline: none;
+	border-color: var(--primary);
+	box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+.debate-modal-actions {
+	display: flex;
+	gap: 8px;
+	justify-content: flex-end;
+	margin-top: 4px;
+}
+
+.debate-modal-secondary,
+.debate-modal-primary {
+	padding: 9px 12px;
+	border-radius: var(--radius-md);
+	font-family: inherit;
+	font-size: 0.875rem;
+	font-weight: 600;
+	cursor: pointer;
+	border: 1px solid transparent;
+	transition: all 0.2s ease;
+}
+
+.debate-modal-secondary {
+	background: rgba(148, 163, 184, 0.08);
+	border-color: var(--border);
+	color: var(--foreground);
+}
+
+.debate-modal-primary {
+	background: var(--primary);
+	color: white;
+	box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+.debate-modal-secondary:hover {
+	background: rgba(148, 163, 184, 0.14);
+}
+
+.debate-modal-primary:hover {
+	background: var(--primary-hover);
+	transform: translateY(-1px);
+}
+
 .take-actions button:active,
 .take-form button:active {
 	transform: translateY(0);

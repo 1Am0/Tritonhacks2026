@@ -21,12 +21,13 @@ const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABAS
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 // Default clear order: remove dependent rows first, then parent/topic rows.
 const TABLES = (process.env.SUPABASE_CLEAR_TABLES || 'debate_messages,debate_ai_requests,debate_ai_results,debate_topic_presence,debate_topics').split(',').map(s => s.trim()).filter(Boolean);
-const TABLE_KEYS = {
-  debate_messages: ['id'],
-  debate_topics: ['id'],
-  debate_topic_presence: ['topic', 'session_id'],
-  debate_ai_requests: ['topic', 'message_count'],
-  debate_ai_results: ['topic'],
+
+// Fallback filter for tables without a numeric `id` column.
+// Use a column we know exists in each table.
+const TABLE_FALLBACK_FILTER = {
+  debate_ai_requests:    'requested_at=gte.1970-01-01',
+  debate_ai_results:     'updated_at=gte.1970-01-01',
+  debate_topic_presence: 'last_seen=gte.1970-01-01',
 };
 
 if (!SUPABASE_URL || !SUPABASE_KEY) {
@@ -42,63 +43,49 @@ function ask(prompt) {
 
 async function deleteAllRows(table) {
   const base = SUPABASE_URL.replace(/\/+$/, '');
-  const baseUrl = `${base}/rest/v1/${table}`;
+  const dryRun = process.argv.includes('--dry-run');
+
   console.log(`-> Deleting all rows from table: ${table}`);
 
-  const keyColumns = TABLE_KEYS[table] || ['id'];
-
-  // Delete in batches by fetching the exact key columns and deleting each row explicitly.
-  // This is slower than a blanket DELETE, but it is reliable and avoids leaving rows behind.
-  const dryRun = process.argv.includes('--dry-run');
-  let attempts = 0;
-  while (attempts < 20) {
-    attempts += 1;
-    const select = keyColumns.join(',');
-    const rowsResponse = await fetch(`${baseUrl}?select=${encodeURIComponent(select)}&limit=1000`, {
-      method: 'GET',
-      headers: {
-        apikey: SUPABASE_KEY,
-        Authorization: `Bearer ${SUPABASE_KEY}`
-      }
-    });
-    const rowsText = await rowsResponse.text();
-    if (!rowsResponse.ok) {
-      throw new Error(`Failed reading ${table}: ${rowsResponse.status} ${rowsText}`);
-    }
-
-    const rows = JSON.parse(rowsText || '[]');
-    if (!rows.length) {
-      console.log(`  OK ${table}: empty`);
-      return;
-    }
-
-    if (dryRun) {
-      console.log(`  DRY RUN ${table}: would delete ${rows.length} row(s)`);
-      for (const row of rows) {
-        const preview = keyColumns.map((column) => `${column}=${JSON.stringify(row[column])}`).join(', ');
-        console.log(`    - ${preview}`);
-      }
-      return;
-    }
-
-    for (const row of rows) {
-      const filterParts = keyColumns.map((column) => `${encodeURIComponent(column)}=eq.${encodeURIComponent(row[column])}`);
-      const deleteUrl = `${baseUrl}?${filterParts.join('&')}`;
-      const deleteResponse = await fetch(deleteUrl, {
-        method: 'DELETE',
-        headers: {
-          apikey: SUPABASE_KEY,
-          Authorization: `Bearer ${SUPABASE_KEY}`
-        }
-      });
-      const deleteText = await deleteResponse.text();
-      if (!deleteResponse.ok) {
-        throw new Error(`Failed deleting from ${table}: ${deleteResponse.status} ${deleteText}`);
-      }
-    }
+  if (dryRun) {
+    console.log(`  DRY RUN ${table}: would delete all rows`);
+    return;
   }
 
-  throw new Error(`Failed deleting ${table}: exceeded retry limit while rows still remained.`);
+  // PostgREST requires a filter to allow DELETE. Using `id=gte.0` is the
+  // common workaround, but the most universal approach is to use the
+  // "not is null" filter on a column that always exists. We use the
+  // Prefer: return=minimal header to avoid fetching deleted rows back.
+  const deleteUrl = `${base}/rest/v1/${table}?id=gte.0`;
+  let response = await fetch(deleteUrl, {
+    method: 'DELETE',
+    headers: {
+      apikey: SUPABASE_KEY,
+      Authorization: `Bearer ${SUPABASE_KEY}`,
+      Prefer: 'return=minimal'
+    }
+  });
+
+  // Some tables may not have a numeric `id` column (e.g. composite-key tables).
+  // Fall back to a per-table known column filter.
+  if (!response.ok && TABLE_FALLBACK_FILTER[table]) {
+    const fallbackUrl = `${base}/rest/v1/${table}?${TABLE_FALLBACK_FILTER[table]}`;
+    response = await fetch(fallbackUrl, {
+      method: 'DELETE',
+      headers: {
+        apikey: SUPABASE_KEY,
+        Authorization: `Bearer ${SUPABASE_KEY}`,
+        Prefer: 'return=minimal'
+      }
+    });
+  }
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Failed deleting from ${table}: ${response.status} ${text}`);
+  }
+
+  console.log(`  OK ${table}: all rows deleted`);
 }
 
 async function main() {
