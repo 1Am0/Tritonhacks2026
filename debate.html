@@ -627,6 +627,51 @@
         return JSON.parse(await res.text() || '[]') || [];
     }
 
+    let factCheckSyncRetryTimer = null;
+
+    function clearFactCheckSyncRetryTimer() {
+        if (factCheckSyncRetryTimer) {
+            clearTimeout(factCheckSyncRetryTimer);
+            factCheckSyncRetryTimer = null;
+        }
+    }
+
+    async function syncSharedFactChecks(trigger, retryCount = 0) {
+        if (!configLoaded || !debateTopic) {
+            console.debug('[fact-check] sync skipped: config/topic missing', { trigger, retryCount });
+            return false;
+        }
+
+        console.debug('[fact-check] sync start', { trigger, retryCount, debateTopic });
+        const rows = await fetchFactChecks().catch((err) => {
+            console.warn('[fact-check] sync fetch failed', { trigger, retryCount, err });
+            return [];
+        });
+
+        console.debug('[fact-check] sync fetched rows', { trigger, retryCount, count: rows.length, rows });
+
+        if (rows.length) {
+            clearFactCheckSyncRetryTimer();
+            const counts = applyFactChecksRows(rows);
+            refreshAllFactCheckMessageStates();
+            updateFactCheckControls();
+            setFactCheckStatus(`Shared fact check updated: ${counts.falseCount} false, ${counts.trueCount} true.`);
+            return true;
+        }
+
+        if (retryCount > 0) {
+            clearFactCheckSyncRetryTimer();
+            factCheckSyncRetryTimer = setTimeout(() => {
+                syncSharedFactChecks(trigger, retryCount - 1).catch((err) => {
+                    console.warn('[fact-check] sync retry failed', { trigger, err });
+                });
+            }, 1200);
+            console.debug('[fact-check] sync scheduled retry', { trigger, retryCountRemaining: retryCount - 1 });
+        }
+
+        return false;
+    }
+
     // FIX: always take the highest message_count seen so interval math stays correct.
     function applyFactChecksRows(rows) {
         let trueCount = 0, falseCount = 0;
@@ -1018,13 +1063,7 @@ Return this shape:
 
             await refreshAiReviewControls();
             await refreshFactCheckControls();
-
-            const persistedFactChecks = await fetchFactChecks().catch(() => []);
-            if (persistedFactChecks && persistedFactChecks.length) {
-                applyFactChecksRows(persistedFactChecks);
-            }
-            refreshAllFactCheckMessageStates();
-            updateFactCheckControls();
+            await syncSharedFactChecks('initial-load', 3);
         } catch (err) {
             setChatStatus(err instanceof Error ? err.message : String(err));
         }
@@ -1234,6 +1273,7 @@ Return this shape:
         if (!res.ok) throw new Error(await res.text());
 
         const rows = JSON.parse(await res.text() || '[]');
+                                syncSharedFactChecks('results-realtime', 0).catch(err => console.warn('[fact-check] results realtime sync failed', err));
         updateOnlineCountLabel(rows.length);
     }
 
