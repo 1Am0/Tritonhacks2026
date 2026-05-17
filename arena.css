@@ -276,11 +276,24 @@ h2 {
 	margin-left: 12px;
 }
 
-.message.own {
-	/* Do not visually highlight own messages; keep same look as others.
-	   The "(you)" label remains for identification. */
+.message.own:not(.fact-check-false):not(.fact-check-true) {
+	/* Keep own messages neutral unless a fact-check verdict is applied. */
 	background: rgba(148, 163, 184, 0.06);
 	border-color: var(--border);
+}
+
+.message.own.fact-check-false {
+	background: rgba(244, 63, 94, 0.12);
+	border-color: rgba(244, 63, 94, 0.45);
+	border-left: 4px solid var(--accent-red);
+	box-shadow: 0 3px 10px rgba(244,63,94,0.06) inset;
+}
+
+.message.own.fact-check-true {
+	background: rgba(16, 185, 129, 0.08);
+	border-color: rgba(16, 185, 129, 0.25);
+	border-left: 4px solid var(--accent-green);
+	box-shadow: 0 3px 10px rgba(16,185,129,0.04) inset;
 }
 
 .message strong {

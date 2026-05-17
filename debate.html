@@ -231,7 +231,7 @@
             });
         }
 
-        const authorHtml = `<strong>${author || 'Anon'}</strong>${isOwnMessage ? ' <span style="font-size:0.75rem;color:#2e7d32;">(you)</span>' : ''}`;
+        const authorHtml = `<strong>${author || 'Anon'}</strong>${isOwnMessage ? ' <span style="font-size:0.75rem;color:#3b82f6;">(you)</span>' : ''}`;
         const timeHtml = `<span class="meta">${createdAt ? new Date(createdAt).toLocaleTimeString() : ''}</span>`;
         wrapper.innerHTML = `${authorHtml}: ${escapeHtml(text)} ${timeHtml}`;
         updateFactCheckMessageState(messageKey);
