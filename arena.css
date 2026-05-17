@@ -277,8 +277,10 @@ h2 {
 }
 
 .message.own {
-	background: rgba(16, 185, 129, 0.1);
-	border-color: rgba(16, 185, 129, 0.2);
+	/* Do not visually highlight own messages; keep same look as others.
+	   The "(you)" label remains for identification. */
+	background: rgba(148, 163, 184, 0.06);
+	border-color: var(--border);
 }
 
 .message strong {

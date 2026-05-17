@@ -134,6 +134,7 @@
     const SUPABASE_TABLE_AI_RESULTS = "debate_ai_results";
     const SUPABASE_TABLE_AI_REQUESTS = "debate_ai_requests";
     const SUPABASE_TABLE_FACT_CHECKS = "debate_fact_checks";
+    const SUPABASE_TABLE_FACT_CHECK_REQUESTS = "debate_fact_check_requests";
     const AI_REVIEW_INTERVAL = 10;
     const FACT_CHECK_INTERVAL = 5;
     const SUPABASE_ENV = window.SUPABASE_ENV || {};
@@ -477,6 +478,49 @@
         }
     }
 
+    async function fetchFactCheckLock(messageCount) {
+        if (!debateTopic || messageCount < FACT_CHECK_INTERVAL) {
+            return null;
+        }
+
+        const url = `${supabaseUrl}/rest/v1/${SUPABASE_TABLE_FACT_CHECK_REQUESTS}?select=topic,message_count,requested_by_session_id,requested_at&topic=eq.${encodeURIComponent(debateTopic)}&order=message_count.desc&limit=1`;
+        const res = await fetch(url, {
+            method: 'GET',
+            headers: {
+                apikey: supabaseAnonKey,
+                Authorization: `Bearer ${supabaseAnonKey}`
+            }
+        });
+
+        if (!res.ok) {
+            throw new Error(await res.text());
+        }
+
+        const rows = JSON.parse(await res.text() || '[]');
+        return rows[0] || null;
+    }
+
+    async function refreshFactCheckControls() {
+        if (!configLoaded || !debateTopic) {
+            if (factCheckAvailabilityEl) {
+                factCheckAvailabilityEl.textContent = 'No topic selected.';
+            }
+            return;
+        }
+
+        const currentCount = allMessages.length;
+        try {
+            const lock = await fetchFactCheckLock(currentCount).catch(() => null);
+            if (lock && Number(lock.message_count || 0) > lastFactCheckMessageCount) {
+                lastFactCheckMessageCount = Number(lock.message_count || 0);
+            }
+            updateFactCheckControls();
+        } catch (err) {
+            console.warn('fact-check controls refresh failed:', err);
+            updateFactCheckControls();
+        }
+    }
+
     function renderAiResult(result) {
         const aiSummaryEl = document.getElementById('aiSummary');
         const aiWinnerEl = document.getElementById('aiWinner');
@@ -783,35 +827,47 @@
     }
 
     function buildFactCheckPrompt(selectedMessages) {
-        return `You are fact-checking debate messages.
+                // include full conversation context so the model can judge claims with context
+                const conv = (allMessages || []).map((m) => ({
+                        message_id: String(m.id),
+                        author: m.author || 'Anon',
+                        message: m.message,
+                        created_at: m.created_at
+                }));
+
+                return `You are fact-checking debate messages with full conversation context.
 Topic: ${debateTopic}
 
-Messages to fact-check:
-${JSON.stringify(selectedMessages.map((item) => ({
-            message_id: String(item.id),
-            author: item.author || 'Anon',
-            message: item.message,
-            created_at: item.created_at
-        })), null, 2)}
+Conversation (most recent last):
+${JSON.stringify(conv, null, 2)}
 
-Rules:
+Messages to fact-check (subset):
+${JSON.stringify(selectedMessages.map((item) => ({
+                        message_id: String(item.id),
+                        author: item.author || 'Anon',
+                        message: item.message,
+                        created_at: item.created_at
+                })), null, 2)}
+
+Important:
+- Use the conversation context above when judging each selected message. Consider preceding messages, replies, and any clarifying information.
 - Return only JSON.
 - Return one result per selected message.
 - verdict must be true or false.
-- Mark verdict true if the message is a correct factual statement or if it is just opinion / rhetoric without a factual claim.
+- Mark verdict true if the message is a correct factual statement or if it is just opinion/rhetoric without a factual claim.
 - Mark verdict false if it contains a materially incorrect factual claim.
 - Keep reasons short.
 
 Return this shape:
 {
-  "topic": "...",
-  "results": [
-    {
-      "message_id": "...",
-      "verdict": true,
-      "reason": "..."
-    }
-  ]
+    "topic": "...",
+    "results": [
+        {
+            "message_id": "...",
+            "verdict": true,
+            "reason": "..."
+        }
+    ]
 }
 `;
     }
@@ -877,8 +933,56 @@ Return this shape:
         }
 
         factCheckInFlight = true;
-        setFactCheckStatus(`Fact-checking ${selectedMessages.length} message${selectedMessages.length === 1 ? '' : 's'} with Groq...`);
+        setFactCheckStatus(`Claiming fact-check slot for ${allMessages.length} messages...`);
         updateFactCheckControls();
+
+        // Attempt to claim the fact-check slot (so only one client runs it)
+        try {
+            const claimRes = await fetch(`${supabaseUrl}/rest/v1/${SUPABASE_TABLE_FACT_CHECK_REQUESTS}`, {
+                method: 'POST',
+                headers: {
+                    apikey: supabaseAnonKey,
+                    Authorization: `Bearer ${supabaseAnonKey}`,
+                    'Content-Type': 'application/json',
+                    Prefer: 'return=representation'
+                },
+                body: JSON.stringify({
+                    topic: debateTopic,
+                    message_count: allMessages.length,
+                    requested_by_session_id: sessionId,
+                    requested_at: new Date().toISOString()
+                })
+            });
+
+            if (!claimRes.ok) {
+                const bodyText = await claimRes.text();
+                if (/duplicate key|23505|conflict/i.test(bodyText)) {
+                    // someone else already claimed; fetch persisted results and apply
+                    setFactCheckStatus('Someone already requested this fact-check. Applying shared results if available...');
+                    const persisted = await fetchFactChecks().catch(() => []);
+                    if (persisted && persisted.length) {
+                        applyFactChecksRows(persisted);
+                        refreshAllFactCheckMessageStates();
+                        setFactCheckStatus('Applied shared fact-check results.');
+                    } else {
+                        setFactCheckStatus('Fact-check already claimed by someone else; waiting for results.');
+                    }
+                    factCheckInFlight = false;
+                    updateFactCheckControls();
+                    return;
+                }
+                throw new Error(bodyText || 'Failed to claim fact-check slot');
+            }
+
+            setFactCheckStatus(`Fact-checking ${selectedMessages.length} message${selectedMessages.length === 1 ? '' : 's'} with Groq...`);
+            updateFactCheckControls();
+        } catch (claimErr) {
+            console.warn('Claiming fact-check slot failed:', claimErr);
+            setFactCheckStatus('Failed to claim fact-check slot. Try again later.');
+            factCheckInFlight = false;
+            updateFactCheckControls();
+            return;
+        }
 
         try {
             const endpoint = `${groqApiUrl.replace(/\/+$/, '')}/chat/completions`;
@@ -978,6 +1082,7 @@ Return this shape:
                 setAiStatus(`Showing cached analysis for ${lastAnalyzedMessageCount} messages.`);
             }
             await refreshAiReviewControls();
+            await refreshFactCheckControls();
             const persistedFactChecks = await fetchFactChecks().catch(() => []);
             if (persistedFactChecks && persistedFactChecks.length) {
                 applyFactChecksRows(persistedFactChecks);
@@ -1090,6 +1195,20 @@ Return this shape:
                             }
 
                             refreshAiReviewControls().catch(err => console.warn('review control refresh failed (realtime):', err));
+                        }
+                    )
+                    .subscribe();
+            }
+
+            if (!factCheckRequestRealtimeChannel) {
+                factCheckRequestRealtimeChannel = client.channel('fact_check_requests')
+                    .on(
+                        'postgres_changes',
+                        { event: '*', schema: 'public', table: SUPABASE_TABLE_FACT_CHECK_REQUESTS },
+                        (payload) => {
+                            const row = payload.new || payload.old;
+                            if (!row || row.topic !== debateTopic) return;
+                            refreshFactCheckControls().catch(err => console.warn('fact-check control refresh failed (realtime):', err));
                         }
                     )
                     .subscribe();
