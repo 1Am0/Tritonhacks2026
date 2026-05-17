@@ -42,6 +42,8 @@
     </section>
 </body>
 <script src="./supabase-config.js"></script>
+<!-- Supabase JS (UMD) for realtime subscriptions -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
     const topicDisplay = document.getElementById("topicDisplay");
     const onlineCountEl = document.getElementById("onlineCount");
@@ -107,11 +109,16 @@
         return existing;
     }
 
-    function appendMessage(author, text, createdAt) {
+    function appendMessage(author, text, createdAt, messageSessionId) {
         const wrapper = document.createElement('div');
+        const isOwnMessage = messageSessionId && messageSessionId === sessionId;
         wrapper.style.padding = '6px';
         wrapper.style.borderBottom = '1px solid #eee';
-        wrapper.innerHTML = `<strong>${author || 'Anon'}</strong>: ${escapeHtml(text)} <span style="color:#666;font-size:0.8em;float:right">${createdAt? new Date(createdAt).toLocaleTimeString():''}</span>`;
+        wrapper.style.borderRadius = '8px';
+        wrapper.style.marginBottom = '6px';
+        wrapper.style.background = isOwnMessage ? '#e8f5e9' : '#ffffff';
+        wrapper.style.border = isOwnMessage ? '1px solid #81c784' : '1px solid #eee';
+        wrapper.innerHTML = `<strong>${author || 'Anon'}</strong>${isOwnMessage ? ' <span style="font-size:0.75rem;color:#2e7d32;">(you)</span>' : ''}: ${escapeHtml(text)} <span style="color:#666;font-size:0.8em;float:right">${createdAt? new Date(createdAt).toLocaleTimeString():''}</span>`;
         messagesEl.appendChild(wrapper);
         messagesEl.scrollTop = messagesEl.scrollHeight;
     }
@@ -146,7 +153,7 @@
 
             // Filter by topic text (stored in cookie). Use REST filter: topic=eq.'...'
             const topicFilter = debateTopic ? `&topic=eq.${encodeURIComponent(debateTopic)}` : '';
-            const url = `${supabaseUrl}/rest/v1/${SUPABASE_TABLE_MESSAGES}?select=id,author,message,created_at${topicFilter}&order=created_at.asc`;
+            const url = `${supabaseUrl}/rest/v1/${SUPABASE_TABLE_MESSAGES}?select=id,author,message,created_at,session_id${topicFilter}&order=created_at.asc`;
             console.log('loadMessages fetch url:', url);
             const res = await fetch(url, {
                 method: 'GET',
@@ -161,7 +168,7 @@
 
             const rows = JSON.parse(text || '[]');
             messagesEl.innerHTML = '';
-            rows.forEach(r => appendMessage(r.author, r.message, r.created_at));
+            rows.forEach(r => appendMessage(r.author, r.message, r.created_at, r.session_id));
             updateLastMessageLabel(rows);
             // track last seen timestamp for polling
             if (rows.length) {
@@ -173,53 +180,64 @@
         }
     }
 
-    // Polling: only fetch messages newer than lastTimestamp
     let lastTimestamp = null;
-    let pollIntervalMs = 3000;
-    let pollId = null;
+    let realtimeChannel = null;
+    let supabaseClient = null;
 
-    async function loadNewMessages() {
-        try {
-            if (!configLoaded) await loadSupabaseConfig();
-            if (!lastTimestamp) {
-                // first time, load all
-                await loadMessages();
-                return;
-            }
-
-            setChatStatus('Polling for new messages...');
-            const topicFilter = debateTopic ? `&topic=eq.${encodeURIComponent(debateTopic)}` : '';
-            const tsFilter = `&created_at=gt.${encodeURIComponent(lastTimestamp)}`;
-            const url = `${supabaseUrl}/rest/v1/${SUPABASE_TABLE_MESSAGES}?select=id,author,message,created_at${topicFilter}${tsFilter}&order=created_at.asc`;
-
-            console.log('loadNewMessages fetch url:', url);
-            const res = await fetch(url, {
-                method: 'GET',
-                headers: {
-                    apikey: supabaseAnonKey,
-                    Authorization: `Bearer ${supabaseAnonKey}`
-                }
-            });
-            const text = await res.text();
-            console.log('loadNewMessages response status:', res.status, 'body:', text);
-            if (!res.ok) throw new Error(text || 'Supabase poll failed');
-
-            const rows = JSON.parse(text || '[]');
-            if (rows.length) {
-                rows.forEach(r => appendMessage(r.author, r.message, r.created_at));
-                lastTimestamp = rows[rows.length - 1].created_at;
-                lastMessageTimeEl.textContent = new Date(lastTimestamp).toLocaleString();
-            }
-            setChatStatus(`Loaded ${rows.length} new message${rows.length===1?'':'s'}.`);
-        } catch (err) {
-            setChatStatus(err instanceof Error ? err.message : String(err));
+    function getSupabaseClient() {
+        if (supabaseClient) {
+            return supabaseClient;
         }
+
+        if (!window.supabase || typeof window.supabase.createClient !== 'function') {
+            throw new Error('Supabase client missing (CDN script not loaded)');
+        }
+
+        supabaseClient = window.__sbClient || (window.__sbClient = window.supabase.createClient(supabaseUrl, supabaseAnonKey));
+        return supabaseClient;
     }
 
-    function startPolling(intervalMs) {
-        if (pollId) clearInterval(pollId);
-        pollIntervalMs = intervalMs || pollIntervalMs;
-        pollId = setInterval(loadNewMessages, pollIntervalMs);
+    // Start a Supabase realtime subscription for new messages (INSERTs)
+    function startRealtime() {
+        try {
+            if (!configLoaded) throw new Error('Supabase config not loaded');
+            if (!debateTopic) throw new Error('No debate topic for realtime');
+
+            const client = getSupabaseClient();
+            if (realtimeChannel) {
+                return Promise.resolve();
+            }
+
+            // Exact Supabase pattern, with message rendering inside the INSERT handler.
+            const channel = client.channel('table_db_changes')
+                .on(
+                    'postgres_changes',
+                    { event: 'INSERT', schema: 'public', table: SUPABASE_TABLE_MESSAGES },
+                    (payload) => {
+                        console.log('New message in DB:', payload.new);
+
+                        const row = payload.new;
+                        if (debateTopic && row.topic !== debateTopic) {
+                            return;
+                        }
+
+                        appendMessage(row.author, row.message, row.created_at, row.session_id);
+                        lastTimestamp = row.created_at || lastTimestamp;
+                        lastMessageTimeEl.textContent = row.created_at ? new Date(row.created_at).toLocaleString() : lastMessageTimeEl.textContent;
+                    }
+                )
+                .subscribe();
+
+            realtimeChannel = channel;
+
+            window.addEventListener('beforeunload', () => {
+                try { if (realtimeChannel) realtimeChannel.unsubscribe(); } catch (e) {}
+            });
+
+            return Promise.resolve();
+        } catch (err) {
+            return Promise.reject(err);
+        }
     }
 
     async function upsertPresence() {
@@ -315,21 +333,32 @@
             if (!configLoaded) await loadSupabaseConfig();
             setChatStatus('Sending...');
 
-            const res = await fetch(`${supabaseUrl}/rest/v1/${SUPABASE_TABLE_MESSAGES}`, {
-                method: 'POST',
-                headers: {
-                    apikey: supabaseAnonKey,
-                    Authorization: `Bearer ${supabaseAnonKey}`,
-                    'Content-Type': 'application/json',
-                    Prefer: 'return=representation'
-                },
-                body: JSON.stringify({ author: author || null, message: message, topic: debateTopic || null })
-            });
+            // Try to include session_id. If the DB/schema doesn't have that column yet
+            // PostgREST may return an error like "Could not find the 'session_id' column".
+            // In that case retry the insert without session_id so sending still works.
+            const url = `${supabaseUrl}/rest/v1/${SUPABASE_TABLE_MESSAGES}`;
+            const baseHeaders = {
+                apikey: supabaseAnonKey,
+                Authorization: `Bearer ${supabaseAnonKey}`,
+                'Content-Type': 'application/json',
+                Prefer: 'return=representation'
+            };
 
-            if (!res.ok) throw new Error(await res.text());
+            let payload = { author: author || null, message: message, topic: debateTopic || null, session_id: sessionId };
+            let res = await fetch(url, { method: 'POST', headers: baseHeaders, body: JSON.stringify(payload) });
+            if (!res.ok) {
+                const bodyText = await res.text();
+                console.warn('sendMessage initial POST failed:', res.status, bodyText);
+                // If failure mentions missing session_id column, retry without it
+                if (/session_id|Could not find the 'session_id' column/i.test(bodyText)) {
+                    payload = { author: author || null, message: message, topic: debateTopic || null };
+                    res = await fetch(url, { method: 'POST', headers: baseHeaders, body: JSON.stringify(payload) });
+                    if (!res.ok) throw new Error(await res.text());
+                } else {
+                    throw new Error(bodyText || 'Supabase insert failed');
+                }
+            }
 
-            // After add, reload messages (per your requirement)
-            await loadMessages();
             await refreshPresenceCount();
             messageInput.value = '';
             setChatStatus('Sent.');
@@ -340,11 +369,15 @@
 
     messageForm.addEventListener('submit', sendMessage);
 
-    // initial load and start polling
+    // initial load: messages -> realtime subscribe
     loadSupabaseConfig().then(function(){
         loadMessages().then(function(){
-            startPolling(3000);
-            startPresenceTracking();
+            startRealtime().then(() => {
+                startPresenceTracking();
+            }).catch((err) => {
+                console.warn('Realtime unavailable:', err);
+                startPresenceTracking();
+            });
         });
     }).catch(err => setChatStatus(err instanceof Error?err.message:String(err)));
 </script>
