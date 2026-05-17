@@ -2,13 +2,13 @@
 
 const path = require('path');
 const dotenv = require('dotenv');
-const { GoogleGenAI } = require('@google/genai');
 
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
-const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY;
+const GROQ_API_KEY = process.env.GROQ_API_KEY;
+const GROQ_API_URL = process.env.GROQ_API_URL; // required endpoint for GROQ API
 
 const topic = process.argv[2];
 if (!topic) {
@@ -21,12 +21,11 @@ if (!SUPABASE_URL || !SUPABASE_KEY) {
   process.exit(1);
 }
 
-if (!GOOGLE_API_KEY) {
-  console.error('Missing GOOGLE_API_KEY in .env');
+if (!GROQ_API_KEY || !GROQ_API_URL) {
+  console.error('Missing GROQ_API_KEY or GROQ_API_URL in .env');
+  console.error('Set GROQ_API_KEY and GROQ_API_URL to point to your Groq endpoint.');
   process.exit(1);
 }
-
-const ai = new GoogleGenAI({ apiKey: GOOGLE_API_KEY });
 
 async function fetchJson(pathname) {
   const url = `${SUPABASE_URL.replace(/\/+$/, '')}/rest/v1/${pathname}`;
@@ -52,6 +51,28 @@ function stripCodeFences(text) {
     .replace(/^```\s*/i, '')
     .replace(/```\s*$/i, '')
     .trim();
+}
+
+async function callGroq(prompt) {
+  const { groq } = await import('@ai-sdk/groq');
+  const modelObj = groq('llama-3.3-70b-versatile');
+  const model = typeof modelObj === 'string' ? modelObj : modelObj.modelId || String(modelObj);
+
+  const res = await fetch(`${GROQ_API_URL.replace(/\/+$/, '')}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${GROQ_API_KEY}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ model, messages: [{ role: 'user', content: prompt }], temperature: 0.2 })
+  });
+
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(`GROQ request failed: ${res.status} ${text}`);
+  }
+
+  return JSON.parse(text);
 }
 
 async function main() {
@@ -109,12 +130,9 @@ Task:
 }
 `;
 
-  const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
-    contents: prompt,
-  });
-
-  const rawText = response.text || '';
+  const response = await callGroq(prompt);
+  // Attempt to extract textual assistant output, falling back to entire response.
+  const rawText = response?.choices?.[0]?.message?.content || JSON.stringify(response);
   const parsed = JSON.parse(stripCodeFences(rawText));
   console.log(JSON.stringify(parsed, null, 2));
 }

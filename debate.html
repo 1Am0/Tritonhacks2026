@@ -94,7 +94,9 @@
     const SUPABASE_ENV = window.SUPABASE_ENV || {};
     let supabaseUrl = "";
     let supabaseAnonKey = "";
-    let googleApiKey = "";
+    let groqApiKey = "";
+    let groqApiUrl = "";
+    let groqModel = 'llama-3.3-70b-versatile';
     let configLoaded = false;
     let sessionId = getSessionId();
     let presenceHeartbeatId = null;
@@ -104,10 +106,12 @@
         var envConfig = SUPABASE_ENV;
         supabaseUrl = envConfig.SUPABASE_URL || envConfig.NEXT_PUBLIC_SUPABASE_URL || "";
         supabaseAnonKey = envConfig.SUPABASE_ANON_KEY || envConfig.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
-        googleApiKey = envConfig.GOOGLE_API_KEY || envConfig.NEXT_PUBLIC_GOOGLE_API_KEY || "";
+        groqApiKey = envConfig.GROQ_API_KEY || envConfig.NEXT_PUBLIC_GROQ_API_KEY || "";
+        groqApiUrl = envConfig.GROQ_API_URL || envConfig.NEXT_PUBLIC_GROQ_API_URL || "";
+        groqModel = envConfig.GROQ_MODEL || envConfig.NEXT_PUBLIC_GROQ_MODEL || groqModel;
 
-        if (!supabaseUrl || !supabaseAnonKey || !googleApiKey) {
-            throw new Error("Supabase config is missing from supabase-config.js.");
+        if (!supabaseUrl || !supabaseAnonKey || !groqApiKey || !groqApiUrl) {
+            throw new Error("Supabase config is missing GROQ config in supabase-config.js.");
         }
 
         configLoaded = true;
@@ -219,18 +223,16 @@
             .replace(/'/g, "&#039;");
     }
 
-    function extractGeminiText(responseJson) {
-        const candidates = responseJson && responseJson.candidates ? responseJson.candidates : [];
-        for (const candidate of candidates) {
-            const parts = candidate && candidate.content && candidate.content.parts ? candidate.content.parts : [];
-            for (const part of parts) {
-                if (part && typeof part.text === 'string') {
-                    return part.text;
-                }
-            }
-        }
+    function extractGroqContent(responseJson) {
+        // Groq response shapes vary; attempt to pull assistant text similarly to chat models.
+        const choice = responseJson && responseJson.choices && responseJson.choices[0] ? responseJson.choices[0] : null;
+        return choice && choice.message && typeof choice.message.content === 'string' ? choice.message.content : JSON.stringify(responseJson);
+    }
 
-        return '';
+    function stripCodeFences(text) {
+        if (!text || typeof text !== 'string') return text;
+        // Remove fenced code blocks (```json ... ``` or ``` ... ```) and trim
+        return text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
     }
 
     async function fetchAiResultCache() {
@@ -295,7 +297,7 @@
     }
 
     async function analyzeLastTenMessages(force = false) {
-        if (aiAnalysisInFlight || !debateTopic || !googleApiKey) {
+        if (aiAnalysisInFlight || !debateTopic || !groqApiKey || !groqApiUrl) {
             return;
         }
 
@@ -328,26 +330,24 @@
 
             const prompt = `You are scoring a live debate.\nTopic: ${debateTopic}\n\nParticipants:\n${JSON.stringify(participants, null, 2)}\n\nLast 10 messages only:\n${JSON.stringify(recentMessages, null, 2)}\n\nTask:\n- For each participant, estimate how persuaded they appear to be by the opposing side.\n- Return a percentage from 0 to 100 for each participant, where 0 = not moved at all and 100 = fully moved.\n- Use the participant's explicit stance if present. If stance is missing, infer it from the conversation.\n- Identify the current winner as the participant whose arguments appear to be persuading others the most.\n- Return JSON only in this shape:\n{\n  \"topic\": \"...\",\n  \"winner_session_id\": \"...\",\n  \"winner_display_name\": \"...\",\n  \"summary\": \"...\",\n  \"participants\": [\n    {\n      \"session_id\": \"...\",\n      \"display_name\": \"...\",\n      \"stance\": \"agree|disagree|null\",\n      \"moved_percentage\": 0,\n      \"reason\": \"...\"\n    }\n  ]\n}\n`;
 
-            const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(googleApiKey)}`, {
+            const endpoint = `${groqApiUrl.replace(/\/+$/, '')}/chat/completions`;
+            const aiResponse = await fetch(endpoint, {
                 method: 'POST',
                 headers: {
+                    Authorization: `Bearer ${groqApiKey}`,
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({
-                    contents: [{ role: 'user', parts: [{ text: prompt }] }],
-                    generationConfig: {
-                        temperature: 0.2,
-                        responseMimeType: 'application/json'
-                    }
-                })
+                body: JSON.stringify({ model: groqModel, messages: [{ role: 'user', content: prompt }], temperature: 0.2 })
             });
 
             const aiBody = await aiResponse.text();
             if (!aiResponse.ok) {
-                throw new Error(aiBody || 'Gemini request failed');
+                throw new Error(aiBody || 'GROQ request failed');
             }
 
-            const parsed = JSON.parse(extractGeminiText(JSON.parse(aiBody)) || '{}');
+            const raw = extractGroqContent(JSON.parse(aiBody)) || '';
+            const cleaned = stripCodeFences(raw);
+            const parsed = JSON.parse(cleaned || '{}');
             const saved = await upsertAiResult(parsed, currentCount);
             lastAnalyzedMessageCount = currentCount;
             renderAiResult(saved ? saved.result : parsed);

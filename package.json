@@ -1,6 +1,7 @@
 {
   "dependencies": {
-    "@google/genai": "^2.3.0",
-    "dotenv": "^17.4.2"
+    "dotenv": "^17.4.2",
+    "@ai-sdk/groq": "^1.0.0",
+    "ai": "^1.0.0"
   }
 }
