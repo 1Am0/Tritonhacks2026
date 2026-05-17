@@ -977,8 +977,16 @@ Return this shape:
             setFactCheckStatus(`Fact-checking ${selectedMessages.length} message${selectedMessages.length === 1 ? '' : 's'} with Groq...`);
             updateFactCheckControls();
         } catch (claimErr) {
+            // Provide more actionable feedback when claim fails (missing table, RLS, permission issues)
             console.warn('Claiming fact-check slot failed:', claimErr);
-            setFactCheckStatus('Failed to claim fact-check slot. Try again later.');
+            const msg = String(claimErr && claimErr.message ? claimErr.message : claimErr);
+            if (/relation\s+"?debate_fact_check_requests"?/i.test(msg) || /does not exist/i.test(msg)) {
+                setFactCheckStatus('Claim failed: fact-check requests table missing. Run migrations.');
+            } else if (/permission denied|forbidden|policy/i.test(msg)) {
+                setFactCheckStatus('Claim failed: permission denied (RLS/policies). Check DB policies.');
+            } else {
+                setFactCheckStatus('Failed to claim fact-check slot. Try again later.');
+            }
             factCheckInFlight = false;
             updateFactCheckControls();
             return;
