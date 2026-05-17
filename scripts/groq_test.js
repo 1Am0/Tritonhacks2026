@@ -38,7 +38,7 @@ async function main() {
         Authorization: `Bearer ${GROQ_API_KEY}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ model, messages: [{ role: 'user', content: 'Say hello from Groq SDK (test).' }] })
+      body: JSON.stringify({ model, messages: [{ role: 'user', content: 'Fact check this: is the world population 7 billion, return a json true, false with a reason' }] })
     });
 
     const text = await res.text();

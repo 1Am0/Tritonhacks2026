@@ -20,11 +20,12 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 // Default clear order: remove dependent rows first, then parent/topic rows.
-const TABLES = (process.env.SUPABASE_CLEAR_TABLES || 'debate_messages,debate_ai_results,debate_topic_presence,debate_topics').split(',').map(s => s.trim()).filter(Boolean);
+const TABLES = (process.env.SUPABASE_CLEAR_TABLES || 'debate_messages,debate_ai_requests,debate_ai_results,debate_topic_presence,debate_topics').split(',').map(s => s.trim()).filter(Boolean);
 const TABLE_KEYS = {
   debate_messages: ['id'],
   debate_topics: ['id'],
   debate_topic_presence: ['topic', 'session_id'],
+  debate_ai_requests: ['topic', 'message_count'],
   debate_ai_results: ['topic'],
 };
 

@@ -1,18 +1,215 @@
-h1{text-align: center;}
-h2{text-align: center;}
+h1{text-align: center; margin: 0;}
+h2{text-align: center; margin: 0 0 12px;}
 
+body{
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px;
+    box-sizing: border-box;
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+
+/* Layout header */
 #userContainer{
     display: flex;
 }
 
+/* Debater camera area */
 #debaterCams{
-    background-color: cyan; 
-    width: 55vw; 
-    height: 400px;
+    display:flex;
+    gap:12px;
+    flex-wrap:wrap;
+    margin:0;
+    align-items:flex-start;
+    flex: 0 0 auto;
 }
 
-#chatLog{
-    background-color: red; 
-    width:35vw;
-    height:400px;
+.cam{
+    flex:1 1 320px;
+    max-width:480px;
+    background: linear-gradient(180deg, #0f172a 0%, #0b1220 100%);
+    color: #fff;
+    padding:8px;
+    border-radius:8px;
+    box-shadow: 0 6px 18px rgba(2,6,23,0.2);
+}
+
+.cam label{
+    display:block;
+    margin-bottom:6px;
+    font-weight:600;
+    color: #e6eef8;
+}
+
+.cam video{
+    width:100%;
+    height:auto;
+    background:#000;
+    border-radius:6px;
+    display:block;
+}
+
+/* Chat area */
+.chat-section{
+    max-width: none;
+    width: 100%;
+    margin: 0 auto;
+    padding: 8px 12px;
+    min-height: 0;
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    box-sizing: border-box;
+}
+
+.chat-layout{
+    width: 100%;
+    display: grid;
+    grid-template-columns: minmax(0, 2.7fr) minmax(0, 1fr);
+    gap: 14px;
+    align-items: start;
+    min-height: 0;
+}
+
+.chat-main{
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+#aiPanel{
+    border:1px solid rgba(15,23,42,0.06);
+    background:#fbfbff;
+    border-radius:8px;
+    padding:12px 14px;
+    margin-bottom:0;
+}
+
+.ai-panel{
+    min-width: 0;
+    max-width: none;
+    width: 100%;
+    height: 480px;
+    max-height: 480px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    box-sizing: border-box;
+}
+
+.ai-panel-header{
+    display:flex;
+    justify-content:space-between;
+    gap:12px;
+    flex-wrap:wrap;
+    align-items:center;
+}
+
+.ai-meta,
+.ai-status,
+.ai-summary,
+.ai-winner{
+    font-size:0.95rem;
+}
+
+.ai-meta{
+    color:#666;
+}
+
+.ai-status{
+    color:#374151;
+}
+
+.ai-summary{
+    color:#111827;
+}
+
+.ai-winner{
+    font-weight:600;
+}
+
+.ai-participants{
+    margin:8px 0 0 18px;
+    padding:0;
+}
+
+#messages{
+    border:1px solid rgba(15,23,42,0.08);
+    padding:12px;
+    min-height: 0;
+    height: 460px;
+    max-height: 460px;
+    flex: 1 1 auto;
+    overflow-y:auto;
+    overflow-x:hidden;
+    background:#ffffff;
+    border-radius:8px;
+}
+
+.message{
+    padding:10px 14px;
+    border-bottom:1px solid rgba(2,6,23,0.03);
+    border-radius:10px;
+    margin-bottom:10px;
+    background: #ffffff;
+    box-shadow: 0 1px 0 rgba(2,6,23,0.02) inset;
+    display:block;
+    clear:both;
+}
+
+.message .meta{float:right;color:#6b7280;font-size:0.82rem; margin-left:8px}
+
+.message.own{
+    background: linear-gradient(90deg, #e8f5e9, #f1fff6);
+    border:1px solid #c8e6c9;
+}
+
+.message strong{display:inline-block;margin-right:6px}
+
+/* Message form controls */
+.message-form-input{padding:8px;border-radius:8px;border:1px solid rgba(2,6,23,0.08);}
+.message-form-select{padding:8px;border-radius:8px;border:1px solid rgba(2,6,23,0.08);}
+.message-form-button{padding:8px 12px;border-radius:10px;background:#111827;color:#fff;border:none;cursor:pointer}
+.message-form-button:hover{background:#1f2937}
+
+@media (max-width: 800px) {
+    body{
+        padding: 12px;
+        overflow-x:hidden;
+        overflow-y:auto;
+    }
+
+    #debaterCams{flex-direction:column}
+
+    .chat-section{
+        display:flex;
+        flex-direction:column;
+    }
+
+    .chat-layout{
+        grid-template-columns: 1fr;
+    }
+
+    .ai-panel{
+        max-width:none;
+        min-width:0;
+    }
+
+    #messages{
+        height: 300px;
+        max-height: 300px;
+    }
+
+    .ai-panel{
+        height: 320px;
+        max-height: 320px;
+    }
 }

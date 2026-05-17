@@ -9,17 +9,17 @@
 <body>
     <h1>Welcome to the Debate Arena</h1>
     <h2 id="topicDisplay"></h2>
-    <div id="debaterCams" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
-        <div class="cam" style="flex:1 1 320px;max-width:480px;">
-            <label style="display:block;margin-bottom:6px;font-weight:600;">Template Cam 1</label>
-            <video controls autoplay muted loop playsinline style="width:100%;background:#000;border-radius:6px;">
+    <div id="debaterCams">
+        <div class="cam">
+            <label>Template Cam 1</label>
+            <video controls autoplay muted loop playsinline>
                 <source src="https://sample-videos.com/video123/mp4/720/big_buck_bunny_720p_1mb.mp4" type="video/mp4">
                 Your browser does not support the video tag.
             </video>
         </div>
-        <div class="cam" style="flex:1 1 320px;max-width:480px;">
-            <label style="display:block;margin-bottom:6px;font-weight:600;">Template Cam 2</label>
-            <video controls autoplay muted loop playsinline style="width:100%;background:#000;border-radius:6px;">
+        <div class="cam">
+            <label>Template Cam 2</label>
+            <video controls autoplay muted loop playsinline>
                 <source src="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4" type="video/mp4">
                 Your browser does not support the video tag.
             </video>
@@ -32,27 +32,33 @@
             <span><strong id="onlineCount">0</strong> online now</span>
             <span>Last message: <strong id="lastMessageTime">No messages yet</strong></span>
         </div>
-        <div id="aiPanel" style="border:1px solid #d8d8d8;background:#fafafa;border-radius:8px;padding:10px;margin-bottom:10px;">
-            <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center;">
-                <strong>AI Debate Readout</strong>
-                <span id="aiStatus" style="font-size:0.9rem;color:#666;">Waiting for 10 messages...</span>
+        <div class="chat-layout">
+            <div class="chat-main">
+                <div id="messages" style="border:1px solid #ccc;padding:8px;overflow:auto;background:#fff;margin-bottom:8px;"></div>
+                <form id="messageForm">
+                    <input id="authorInput" class="message-form-input" type="text" placeholder="Your name" required style="width:25%;margin-right:8px;" />
+                    <select id="stanceInput" class="message-form-select" required style="width:18%;margin-right:8px;">
+                        <option value="" selected disabled>Pick a side</option>
+                        <option value="agree">Agree</option>
+                        <option value="disagree">Disagree</option>
+                    </select>
+                    <input id="messageInput" class="message-form-input" type="text" placeholder="Write a message" required style="width:55%;margin-right:8px;" />
+                    <button id="sendMessage" class="message-form-button" type="submit">Send</button>
+                </form>
+                <p id="chatStatus" aria-live="polite"></p>
             </div>
-            <div id="aiSummary" style="margin-top:8px;font-size:0.95rem;">No analysis yet.</div>
-            <div id="aiWinner" style="margin-top:6px;font-weight:600;"></div>
-            <ul id="aiParticipants" style="margin:8px 0 0 18px;padding:0;"></ul>
+            <aside id="aiPanel" class="ai-panel">
+                <div class="ai-panel-header">
+                    <strong>AI Debate Readout</strong>
+                    <button id="requestAiReview" class="message-form-button" type="button">Request AI Review</button>
+                </div>
+                <div id="aiAvailability" class="ai-meta">Waiting for 10 messages...</div>
+                <div id="aiStatus" class="ai-status">No analysis yet.</div>
+                <div id="aiSummary" class="ai-summary">No analysis yet.</div>
+                <div id="aiWinner" class="ai-winner"></div>
+                <ul id="aiParticipants" class="ai-participants"></ul>
+            </aside>
         </div>
-        <div id="messages" style="border:1px solid #ccc;padding:8px;height:300px;overflow:auto;background:#fff;margin-bottom:8px;"></div>
-        <form id="messageForm">
-            <input id="authorInput" type="text" placeholder="Your name" required style="width:25%;padding:6px;margin-right:8px;" />
-            <select id="stanceInput" required style="width:18%;padding:6px;margin-right:8px;">
-                <option value="" selected disabled>Pick a side</option>
-                <option value="agree">Agree</option>
-                <option value="disagree">Disagree</option>
-            </select>
-            <input id="messageInput" type="text" placeholder="Write a message" required style="width:55%;padding:6px;margin-right:8px;" />
-            <button id="sendMessage" type="submit">Send</button>
-        </form>
-        <p id="chatStatus" aria-live="polite"></p>
     </section>
 </body>
 <script src="./supabase-config.js"></script>
@@ -66,6 +72,8 @@
     const aiSummaryEl = document.getElementById("aiSummary");
     const aiWinnerEl = document.getElementById("aiWinner");
     const aiParticipantsEl = document.getElementById("aiParticipants");
+    const requestAiReviewButton = document.getElementById("requestAiReview");
+    const aiAvailabilityEl = document.getElementById("aiAvailability");
     const messagesEl = document.getElementById("messages");
     const messageForm = document.getElementById("messageForm");
     const authorInput = document.getElementById("authorInput");
@@ -91,6 +99,8 @@
     const SUPABASE_TABLE_MESSAGES = "debate_messages";
     const SUPABASE_TABLE_PRESENCE = "debate_topic_presence";
     const SUPABASE_TABLE_AI_RESULTS = "debate_ai_results";
+    const SUPABASE_TABLE_AI_REQUESTS = "debate_ai_requests";
+    const AI_REVIEW_INTERVAL = 10;
     const SUPABASE_ENV = window.SUPABASE_ENV || {};
     let supabaseUrl = "";
     let supabaseAnonKey = "";
@@ -101,6 +111,7 @@
     let sessionId = getSessionId();
     let presenceHeartbeatId = null;
     let presenceRefreshId = null;
+    let aiReviewRequestChannel = null;
 
     async function loadSupabaseConfig() {
         var envConfig = SUPABASE_ENV;
@@ -151,13 +162,11 @@
 
         const wrapper = document.createElement('div');
         const isOwnMessage = messageSessionId && messageSessionId === sessionId;
-        wrapper.style.padding = '6px';
-        wrapper.style.borderBottom = '1px solid #eee';
-        wrapper.style.borderRadius = '8px';
-        wrapper.style.marginBottom = '6px';
-        wrapper.style.background = isOwnMessage ? '#e8f5e9' : '#ffffff';
-        wrapper.style.border = isOwnMessage ? '1px solid #81c784' : '1px solid #eee';
-        wrapper.innerHTML = `<strong>${author || 'Anon'}</strong>${isOwnMessage ? ' <span style="font-size:0.75rem;color:#2e7d32;">(you)</span>' : ''}: ${escapeHtml(text)} <span style="color:#666;font-size:0.8em;float:right">${createdAt? new Date(createdAt).toLocaleTimeString():''}</span>`;
+        wrapper.className = 'message' + (isOwnMessage ? ' own' : '');
+
+        const authorHtml = `<strong>${author || 'Anon'}</strong>${isOwnMessage ? ' <span style="font-size:0.75rem;color:#2e7d32;">(you)</span>' : ''}`;
+        const timeHtml = `<span class="meta">${createdAt ? new Date(createdAt).toLocaleTimeString() : ''}</span>`;
+        wrapper.innerHTML = `${authorHtml}: ${escapeHtml(text)} ${timeHtml}`;
         messagesEl.appendChild(wrapper);
         messagesEl.scrollTop = messagesEl.scrollHeight;
         return true;
@@ -167,6 +176,74 @@
         const aiStatusEl = document.getElementById('aiStatus');
         if (aiStatusEl) {
             aiStatusEl.textContent = text;
+        }
+    }
+
+    function getReviewAvailabilityText(messageCount, lastReviewCount) {
+        if (messageCount < AI_REVIEW_INTERVAL) {
+            return `Available after ${AI_REVIEW_INTERVAL} messages.`;
+        }
+
+        if (!lastReviewCount) {
+            return `Review available now.`;
+        }
+
+        const nextAllowed = lastReviewCount + AI_REVIEW_INTERVAL;
+        if (messageCount < nextAllowed) {
+            return `Review already requested at ${lastReviewCount} messages. Next request opens at ${nextAllowed}.`;
+        }
+
+        return `Review available now (last review at ${lastReviewCount}).`;
+    }
+
+    function setReviewButtonState(messageCount, lastReviewCount) {
+        if (!requestAiReviewButton || !aiAvailabilityEl) {
+            return;
+        }
+
+        const isAvailableNow = messageCount >= AI_REVIEW_INTERVAL && (!lastReviewCount || messageCount - lastReviewCount >= AI_REVIEW_INTERVAL);
+        requestAiReviewButton.disabled = !isAvailableNow || aiAnalysisInFlight;
+        requestAiReviewButton.textContent = isAvailableNow ? 'Request AI Review' : 'AI Review Locked';
+        aiAvailabilityEl.textContent = getReviewAvailabilityText(messageCount, lastReviewCount);
+    }
+
+    async function fetchAiRequestLock(messageCount) {
+        if (!debateTopic || messageCount < AI_REVIEW_INTERVAL) {
+            return null;
+        }
+
+        const url = `${supabaseUrl}/rest/v1/${SUPABASE_TABLE_AI_REQUESTS}?select=topic,message_count,requested_by_session_id,requested_at&topic=eq.${encodeURIComponent(debateTopic)}&order=message_count.desc&limit=1`;
+        const res = await fetch(url, {
+            method: 'GET',
+            headers: {
+                apikey: supabaseAnonKey,
+                Authorization: `Bearer ${supabaseAnonKey}`
+            }
+        });
+
+        if (!res.ok) {
+            throw new Error(await res.text());
+        }
+
+        const rows = JSON.parse(await res.text() || '[]');
+        return rows[0] || null;
+    }
+
+    async function refreshAiReviewControls() {
+        if (!configLoaded || !debateTopic) {
+            if (aiAvailabilityEl) {
+                aiAvailabilityEl.textContent = 'No topic selected.';
+            }
+            return;
+        }
+
+        const currentCount = allMessages.length;
+        try {
+            const lock = await fetchAiRequestLock(currentCount).catch(() => null);
+            setReviewButtonState(currentCount, lock ? Number(lock.message_count || 0) : 0);
+        } catch (err) {
+            console.warn('review controls refresh failed:', err);
+            setReviewButtonState(currentCount, 0);
         }
     }
 
@@ -296,37 +373,28 @@
         return JSON.parse(await res.text() || '[]');
     }
 
-    async function analyzeLastTenMessages(force = false) {
+    async function analyzeReviewSnapshot(reviewCount, recentMessages) {
         if (aiAnalysisInFlight || !debateTopic || !groqApiKey || !groqApiUrl) {
             return;
         }
 
-        const currentCount = allMessages.length;
-        if (currentCount < 10) {
-            setAiStatus(`Waiting for 10 messages... (${currentCount}/10)`);
-            return;
-        }
-
-        if (!force && currentCount % 10 !== 0) {
-            return;
-        }
-
         aiAnalysisInFlight = true;
-        setAiStatus(`Analyzing last 10 messages at message #${currentCount}...`);
+        setAiStatus(`Analyzing review at message #${reviewCount}...`);
 
         try {
             const cache = await fetchAiResultCache().catch(() => null);
-            if (cache && Number(cache.analyzed_message_count || 0) >= currentCount) {
+            if (cache && Number(cache.analyzed_message_count || 0) >= reviewCount) {
                 lastAnalyzedMessageCount = Number(cache.analyzed_message_count || 0);
                 renderAiResult(cache.result);
                 setAiStatus(`Showing cached analysis for ${lastAnalyzedMessageCount} messages.`);
                 return;
             }
 
-            const [participants, recentMessages] = await Promise.all([
-                fetchAiParticipants(),
-                Promise.resolve(allMessages.slice(-10)),
-            ]);
+                const snapshotMessages = recentMessages || allMessages.slice(-10);
+                const [participants, latestMessages] = await Promise.all([
+                    fetchAiParticipants(),
+                    Promise.resolve(snapshotMessages),
+                ]);
 
             const prompt = `You are scoring a live debate.\nTopic: ${debateTopic}\n\nParticipants:\n${JSON.stringify(participants, null, 2)}\n\nLast 10 messages only:\n${JSON.stringify(recentMessages, null, 2)}\n\nTask:\n- For each participant, estimate how persuaded they appear to be by the opposing side.\n- Return a percentage from 0 to 100 for each participant, where 0 = not moved at all and 100 = fully moved.\n- Use the participant's explicit stance if present. If stance is missing, infer it from the conversation.\n- Identify the current winner as the participant whose arguments appear to be persuading others the most.\n- Return JSON only in this shape:\n{\n  \"topic\": \"...\",\n  \"winner_session_id\": \"...\",\n  \"winner_display_name\": \"...\",\n  \"summary\": \"...\",\n  \"participants\": [\n    {\n      \"session_id\": \"...\",\n      \"display_name\": \"...\",\n      \"stance\": \"agree|disagree|null\",\n      \"moved_percentage\": 0,\n      \"reason\": \"...\"\n    }\n  ]\n}\n`;
 
@@ -348,16 +416,71 @@
             const raw = extractGroqContent(JSON.parse(aiBody)) || '';
             const cleaned = stripCodeFences(raw);
             const parsed = JSON.parse(cleaned || '{}');
-            const saved = await upsertAiResult(parsed, currentCount);
-            lastAnalyzedMessageCount = currentCount;
+            const saved = await upsertAiResult(parsed, reviewCount);
+            lastAnalyzedMessageCount = reviewCount;
             renderAiResult(saved ? saved.result : parsed);
-            setAiStatus(`Analyzed last 10 messages at message #${currentCount}.`);
+            setAiStatus(`Analyzed review at message #${reviewCount}.`);
         } catch (err) {
             console.warn('AI analysis failed:', err);
             setAiStatus(err instanceof Error ? err.message : String(err));
         } finally {
             aiAnalysisInFlight = false;
+            refreshAiReviewControls().catch(() => {});
         }
+    }
+
+    async function requestAiReview() {
+        if (!configLoaded || !debateTopic) {
+            return;
+        }
+
+        const currentCount = allMessages.length;
+        const lock = await fetchAiRequestLock(currentCount).catch(() => null);
+        const lastReviewCount = lock ? Number(lock.message_count || 0) : 0;
+
+        if (currentCount < AI_REVIEW_INTERVAL) {
+            setAiStatus(`Wait until ${AI_REVIEW_INTERVAL} messages before requesting a review.`);
+            await refreshAiReviewControls();
+            return;
+        }
+
+        if (lastReviewCount && currentCount - lastReviewCount < AI_REVIEW_INTERVAL) {
+            setAiStatus(`Review already requested at ${lastReviewCount} messages. Next request opens at ${lastReviewCount + AI_REVIEW_INTERVAL}.`);
+            await refreshAiReviewControls();
+            return;
+        }
+
+        const snapshot = allMessages.slice(-AI_REVIEW_INTERVAL);
+
+        const claimRes = await fetch(`${supabaseUrl}/rest/v1/${SUPABASE_TABLE_AI_REQUESTS}`, {
+            method: 'POST',
+            headers: {
+                apikey: supabaseAnonKey,
+                Authorization: `Bearer ${supabaseAnonKey}`,
+                'Content-Type': 'application/json',
+                Prefer: 'return=representation'
+            },
+            body: JSON.stringify({
+                topic: debateTopic,
+                message_count: currentCount,
+                requested_by_session_id: sessionId,
+                requested_at: new Date().toISOString()
+            })
+        });
+
+        if (!claimRes.ok) {
+            const bodyText = await claimRes.text();
+            if (/duplicate key|23505|conflict/i.test(bodyText)) {
+                setAiStatus(`Someone already requested the review for ${currentCount} messages. Everyone waits until ${currentCount + AI_REVIEW_INTERVAL}.`);
+                await refreshAiReviewControls();
+                return;
+            }
+
+            throw new Error(bodyText || 'Failed to claim AI review slot');
+        }
+
+        setAiStatus(`Review requested for ${currentCount} messages. Analyzing now...`);
+        await analyzeReviewSnapshot(currentCount, snapshot);
     }
 
     async function loadMessages() {
@@ -401,15 +524,15 @@
                 renderAiResult(cachedAi.result);
                 setAiStatus(`Showing cached analysis for ${lastAnalyzedMessageCount} messages.`);
             }
-            await analyzeLastTenMessages();
+            await refreshAiReviewControls();
         } catch (err) {
             setChatStatus(err instanceof Error ? err.message : String(err));
         }
     }
-
     let lastTimestamp = null;
     let realtimeChannel = null;
     let aiRealtimeChannel = null;
+    let aiRequestRealtimeChannel = null;
     let presenceRealtimeChannel = null;
     let supabaseClient = null;
     let allMessages = [];
@@ -457,7 +580,7 @@
 
                         if (appendMessage(row.author, row.message, row.created_at, row.session_id, row.id)) {
                             allMessages.push(row);
-                            analyzeLastTenMessages().catch(err => console.warn('AI analysis trigger failed:', err));
+                            refreshAiReviewControls().catch(err => console.warn('review control refresh failed:', err));
                         }
                         lastTimestamp = row.created_at || lastTimestamp;
                         lastMessageTimeEl.textContent = row.created_at ? new Date(row.created_at).toLocaleString() : lastMessageTimeEl.textContent;
@@ -486,6 +609,23 @@
                     .subscribe();
             }
 
+            if (!aiRequestRealtimeChannel) {
+                aiRequestRealtimeChannel = client.channel('ai_review_requests')
+                    .on(
+                        'postgres_changes',
+                        { event: '*', schema: 'public', table: SUPABASE_TABLE_AI_REQUESTS },
+                        (payload) => {
+                            const row = payload.new || payload.old;
+                            if (!row || row.topic !== debateTopic) {
+                                return;
+                            }
+
+                            refreshAiReviewControls().catch(err => console.warn('review control refresh failed (realtime):', err));
+                        }
+                    )
+                    .subscribe();
+            }
+
             if (!presenceRealtimeChannel) {
                 presenceRealtimeChannel = client.channel('presence_changes')
                     .on(
@@ -509,12 +649,22 @@
             window.addEventListener('beforeunload', () => {
                 try { if (realtimeChannel) realtimeChannel.unsubscribe(); } catch (e) {}
                 try { if (aiRealtimeChannel) aiRealtimeChannel.unsubscribe(); } catch (e) {}
+                try { if (aiRequestRealtimeChannel) aiRequestRealtimeChannel.unsubscribe(); } catch (e) {}
             });
 
             return Promise.resolve();
         } catch (err) {
             return Promise.reject(err);
         }
+    }
+
+    if (requestAiReviewButton) {
+        requestAiReviewButton.addEventListener('click', () => {
+            requestAiReview().catch(err => {
+                console.warn('AI review request failed:', err);
+                setAiStatus(err instanceof Error ? err.message : String(err));
+            });
+        });
     }
 
     async function upsertPresence() {
