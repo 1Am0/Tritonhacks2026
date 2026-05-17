@@ -1,22 +1,31 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<title>Page Title</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Debatle - Start Your Debate</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="./moggle.css">
 </head>
 <body>
     <main class="page-shell">
         <section class="hero-card">
-            <h3>Couldn't find any interesting 🔥 takes?</h3>
-            <h1>Start Your Own Debatle 🗣️</h1>
-            <p id="homePresence" aria-live="polite" style="margin:0 0 12px;color:#555;font-weight:600;">0 people are online right now</p>
+            <h3>Can&apos;t find an interesting take?</h3>
+            <h1>Start Your Own Debate</h1>
+            <p id="homePresence" aria-live="polite">0 people are online right now</p>
             <form id="takeForm" class="take-form">
-                <label for="authorText">Author</label>
-                <input id="authorText" type="text" placeholder="Your name" required>
-                <label for="takeText">Debate topic</label>
-                <input id="takeText" type="text" placeholder="Type a hot take" required>
+                <div class="form-group">
+                    <label for="authorText">Your Name</label>
+                    <input id="authorText" type="text" placeholder="Enter your name" required>
+                </div>
+                <div class="form-group">
+                    <label for="takeText">Debate Topic</label>
+                    <input id="takeText" type="text" placeholder="What should we debate about?" required>
+                </div>
                 <div class="take-actions">
-                    <button id="submitTake" type="submit">Publish debate topic</button>
+                    <button id="submitTake" type="submit">Create Debate</button>
                 </div>
                 <p id="statusMessage" aria-live="polite"></p>
             </form>
