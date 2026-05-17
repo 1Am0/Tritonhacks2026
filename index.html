@@ -15,8 +15,7 @@
                 <label for="takeText">Debate topic</label>
                 <input id="takeText" type="text" placeholder="Type a hot take" required>
                 <div class="take-actions">
-                    <button id="submitTake" type="submit">Submit to Supabase</button>
-                    <button id="loadTake" type="button">Pull from Supabase</button>
+                    <button id="submitTake" type="submit">Publish debate topic</button>
                 </div>
                 <p id="statusMessage" aria-live="polite"></p>
             </form>
@@ -33,7 +32,7 @@
     const SUPABASE_ENV = window.SUPABASE_ENV || {};
 
     var takeForm = document.getElementById("takeForm");
-    var loadTakeButton = document.getElementById("loadTake");
+    
     var takeParent = document.getElementById("takeParent");
     var takeTextInput = document.getElementById("takeText");
     var authorTextInput = document.getElementById("authorText");
@@ -206,7 +205,6 @@
     }
 
     takeForm.addEventListener("submit", submitTake);
-    loadTakeButton.addEventListener("click", loadFromSupabase);
 
     loadSupabaseConfig().then(loadFromSupabase).catch(function (error) {
         setStatus(error instanceof Error ? error.message : "Something went wrong.");

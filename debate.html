@@ -10,10 +10,26 @@
     <h1>Welcome to the Debate Arena</h1>
     <h2 id="topicDisplay"></h2>
     <div id="debaterCams"></div>
-    <div id="chatLog"></div>
+
+    <section id="chatSection" class="chat-section">
+        <h3>Live Chat</h3>
+        <div id="messages" style="border:1px solid #ccc;padding:8px;height:300px;overflow:auto;background:#fff;margin-bottom:8px;"></div>
+        <form id="messageForm">
+            <input id="authorInput" type="text" placeholder="Your name" required style="width:25%;padding:6px;margin-right:8px;" />
+            <input id="messageInput" type="text" placeholder="Write a message" required style="width:55%;padding:6px;margin-right:8px;" />
+            <button id="sendMessage" type="submit">Send</button>
+        </form>
+        <p id="chatStatus" aria-live="polite"></p>
+    </section>
 </body>
+<script src="./supabase-config.js"></script>
 <script>
     const topicDisplay = document.getElementById("topicDisplay");
+    const messagesEl = document.getElementById("messages");
+    const messageForm = document.getElementById("messageForm");
+    const authorInput = document.getElementById("authorInput");
+    const messageInput = document.getElementById("messageInput");
+    const chatStatus = document.getElementById("chatStatus");
 
     function getCookie(name) {
         const cookieValue = document.cookie
@@ -27,5 +43,167 @@
     topicDisplay.textContent = debateTopic
         ? `Debate Topic Is: ${debateTopic}`
         : "Debate Topic Is: No topic selected";
+
+    // Supabase REST setup (mirrors index.html approach)
+    const SUPABASE_TABLE_MESSAGES = "debate_messages";
+    const SUPABASE_ENV = window.SUPABASE_ENV || {};
+    let supabaseUrl = "";
+    let supabaseAnonKey = "";
+    let configLoaded = false;
+
+    async function loadSupabaseConfig() {
+        var envConfig = SUPABASE_ENV;
+        supabaseUrl = envConfig.SUPABASE_URL || envConfig.NEXT_PUBLIC_SUPABASE_URL || "";
+        supabaseAnonKey = envConfig.SUPABASE_ANON_KEY || envConfig.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+
+        if (!supabaseUrl || !supabaseAnonKey) {
+            throw new Error("Supabase config is missing from supabase-config.js.");
+        }
+
+        configLoaded = true;
+    }
+
+    function setChatStatus(msg) {
+        chatStatus.textContent = msg;
+    }
+
+    function appendMessage(author, text, createdAt) {
+        const wrapper = document.createElement('div');
+        wrapper.style.padding = '6px';
+        wrapper.style.borderBottom = '1px solid #eee';
+        wrapper.innerHTML = `<strong>${author || 'Anon'}</strong>: ${escapeHtml(text)} <span style="color:#666;font-size:0.8em;float:right">${createdAt? new Date(createdAt).toLocaleTimeString():''}</span>`;
+        messagesEl.appendChild(wrapper);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    function escapeHtml(unsafe) {
+        return unsafe
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/\"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    }
+
+    async function loadMessages() {
+        try {
+            if (!configLoaded) await loadSupabaseConfig();
+            setChatStatus('Loading messages...');
+
+            // Filter by topic text (stored in cookie). Use REST filter: topic=eq.'...'
+            const topicFilter = debateTopic ? `&topic=eq.${encodeURIComponent(debateTopic)}` : '';
+            const url = `${supabaseUrl}/rest/v1/${SUPABASE_TABLE_MESSAGES}?select=id,author,message,created_at${topicFilter}&order=created_at.asc`;
+            console.log('loadMessages fetch url:', url);
+            const res = await fetch(url, {
+                method: 'GET',
+                headers: {
+                    apikey: supabaseAnonKey,
+                    Authorization: `Bearer ${supabaseAnonKey}`
+                }
+            });
+            const text = await res.text();
+            console.log('loadMessages response status:', res.status, 'body:', text);
+            if (!res.ok) throw new Error(text || 'Supabase load failed');
+
+            const rows = JSON.parse(text || '[]');
+            messagesEl.innerHTML = '';
+            rows.forEach(r => appendMessage(r.author, r.message, r.created_at));
+            // track last seen timestamp for polling
+            if (rows.length) {
+                lastTimestamp = rows[rows.length - 1].created_at;
+            }
+            setChatStatus(`Loaded ${rows.length} message${rows.length===1?'':'s'}.`);
+        } catch (err) {
+            setChatStatus(err instanceof Error ? err.message : String(err));
+        }
+    }
+
+    // Polling: only fetch messages newer than lastTimestamp
+    let lastTimestamp = null;
+    let pollIntervalMs = 3000;
+    let pollId = null;
+
+    async function loadNewMessages() {
+        try {
+            if (!configLoaded) await loadSupabaseConfig();
+            if (!lastTimestamp) {
+                // first time, load all
+                await loadMessages();
+                return;
+            }
+
+            setChatStatus('Polling for new messages...');
+            const topicFilter = debateTopic ? `&topic=eq.${encodeURIComponent(debateTopic)}` : '';
+            const tsFilter = `&created_at=gt.${encodeURIComponent(lastTimestamp)}`;
+            const url = `${supabaseUrl}/rest/v1/${SUPABASE_TABLE_MESSAGES}?select=id,author,message,created_at${topicFilter}${tsFilter}&order=created_at.asc`;
+
+            console.log('loadNewMessages fetch url:', url);
+            const res = await fetch(url, {
+                method: 'GET',
+                headers: {
+                    apikey: supabaseAnonKey,
+                    Authorization: `Bearer ${supabaseAnonKey}`
+                }
+            });
+            const text = await res.text();
+            console.log('loadNewMessages response status:', res.status, 'body:', text);
+            if (!res.ok) throw new Error(text || 'Supabase poll failed');
+
+            const rows = JSON.parse(text || '[]');
+            if (rows.length) {
+                rows.forEach(r => appendMessage(r.author, r.message, r.created_at));
+                lastTimestamp = rows[rows.length - 1].created_at;
+            }
+            setChatStatus(`Loaded ${rows.length} new message${rows.length===1?'':'s'}.`);
+        } catch (err) {
+            setChatStatus(err instanceof Error ? err.message : String(err));
+        }
+    }
+
+    function startPolling(intervalMs) {
+        if (pollId) clearInterval(pollId);
+        pollIntervalMs = intervalMs || pollIntervalMs;
+        pollId = setInterval(loadNewMessages, pollIntervalMs);
+    }
+
+    async function sendMessage(e) {
+        e.preventDefault();
+        const author = authorInput.value.trim();
+        const message = messageInput.value.trim();
+        if (!message) return;
+        try {
+            if (!configLoaded) await loadSupabaseConfig();
+            setChatStatus('Sending...');
+
+            const res = await fetch(`${supabaseUrl}/rest/v1/${SUPABASE_TABLE_MESSAGES}`, {
+                method: 'POST',
+                headers: {
+                    apikey: supabaseAnonKey,
+                    Authorization: `Bearer ${supabaseAnonKey}`,
+                    'Content-Type': 'application/json',
+                    Prefer: 'return=representation'
+                },
+                body: JSON.stringify({ author: author || null, message: message, topic: debateTopic || null })
+            });
+
+            if (!res.ok) throw new Error(await res.text());
+
+            // After add, reload messages (per your requirement)
+            await loadMessages();
+            messageInput.value = '';
+            setChatStatus('Sent.');
+        } catch (err) {
+            setChatStatus(err instanceof Error ? err.message : String(err));
+        }
+    }
+
+    messageForm.addEventListener('submit', sendMessage);
+
+    // initial load and start polling
+    loadSupabaseConfig().then(function(){
+        loadMessages().then(function(){
+            startPolling(3000);
+        });
+    }).catch(err => setChatStatus(err instanceof Error?err.message:String(err)));
 </script>
 </html>
