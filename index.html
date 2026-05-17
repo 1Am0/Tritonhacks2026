@@ -32,6 +32,11 @@
             </form>
         </section>
         <section>
+            <div class="form-group topic-browser">
+                <label for="topicSearch">Search Debate Topics</label>
+                <input id="topicSearch" type="text" placeholder="Search all topics..." autocomplete="off">
+                <p id="topicBrowseMeta" class="take-meta topic-browse-meta">Showing 5 random topics.</p>
+            </div>
             <div id="takeParent"></div>
         </section>
     </main>
@@ -74,14 +79,20 @@
     var authorTextInput = document.getElementById("authorText");
     var statusMessage = document.getElementById("statusMessage");
     var homePresence = document.getElementById("homePresence");
+    var topicSearchInput = document.getElementById("topicSearch");
+    var topicBrowseMeta = document.getElementById("topicBrowseMeta");
 
     var takeList = [];
+    var allTopicRows = [];
+    var displayedTopicRows = [];
+    var TOPIC_SAMPLE_LIMIT = 5;
     var supabaseUrl = "";
     var supabaseAnonKey = "";
     var configLoaded = false;
     var homeSessionId = getHomeSessionId();
     var homePresenceHeartbeatId = null;
     var homePresenceRefreshId = null;
+    var visibleTopicPresenceRefreshId = null;
 
     function parseEnvFile(envText) {
         return envText.split(/\r?\n/).reduce(function (config, line) {
@@ -145,8 +156,13 @@
 
     function goToDebate(event) {
         // show modal to collect name + stance before opening debate
-        const idx = Number(event.target.id);
-        const topicText = takeList[idx].childNodes[0].textContent;
+        const idx = Number(event.currentTarget.dataset.displayIndex);
+        const row = displayedTopicRows[idx];
+        if (!row || !row.topic) {
+            setStatus('Topic not found. Please reload.');
+            return;
+        }
+        const topicText = row.topic;
         showDebateModal(topicText);
     }
 
@@ -228,11 +244,21 @@
     const reloadBtn = document.getElementById('reloadTakes');
     if (reloadBtn) reloadBtn.addEventListener('click', function(){ loadFromSupabase().catch(function(e){ setStatus(e instanceof Error?e.message:String(e)); }); });
 
-    function addPrompt(topicText, authorText, createdAt) {
+    function shuffleRows(rows) {
+        var copy = rows.slice();
+        for (var i = copy.length - 1; i > 0; i -= 1) {
+            var j = Math.floor(Math.random() * (i + 1));
+            var temp = copy[i];
+            copy[i] = copy[j];
+            copy[j] = temp;
+        }
+        return copy;
+    }
+
+    function addPrompt(topicText, authorText, createdAt, displayIndex) {
         let selectButton = document.createElement("button");
-        console.log(takeList.length);
         selectButton.type = "button";
-        selectButton.id = takeList.length;
+        selectButton.dataset.displayIndex = String(displayIndex);
         selectButton.textContent = "Debate Now";
         selectButton.addEventListener("click", goToDebate);
 
@@ -240,21 +266,128 @@
         takeTextContainer.textContent = topicText;
         takeTextContainer.style.textAlign = "center";
 
-        let takeMetaContainer = document.createElement("p");
-        takeMetaContainer.className = "take-meta";
+        let takeMetaContainer = document.createElement("span");
+        takeMetaContainer.className = "take-meta take-meta-left";
         takeMetaContainer.textContent = authorText ? `Submitted by ${authorText}${createdAt ? ` on ${new Date(createdAt).toLocaleString()}` : ""}` : "";
+
+        let topicOnlineContainer = document.createElement("span");
+        topicOnlineContainer.className = "take-meta topic-online";
+        topicOnlineContainer.textContent = "Checking online...";
+
+        let takeMetaRow = document.createElement("div");
+        takeMetaRow.className = "take-meta-row";
+        takeMetaRow.appendChild(takeMetaContainer);
+        takeMetaRow.appendChild(topicOnlineContainer);
 
         let div = document.createElement("div");
         div.className = "take-box";
+        div.dataset.displayIndex = String(displayIndex);
+        div.dataset.topic = topicText;
         takeList.push(div);
 
         takeList[takeList.length - 1].appendChild(takeTextContainer);
-        if (takeMetaContainer.textContent) {
-            takeList[takeList.length - 1].appendChild(takeMetaContainer);
+        if (takeMetaContainer.textContent || topicOnlineContainer.textContent) {
+            takeList[takeList.length - 1].appendChild(takeMetaRow);
         }
         takeList[takeList.length - 1].appendChild(selectButton);
 
         takeParent.appendChild(takeList[takeList.length - 1]);
+    }
+
+    async function fetchTopicOnlineCount(topicText) {
+        if (!configLoaded || !topicText) {
+            return 0;
+        }
+
+        var cutoff = new Date(Date.now() - 30000).toISOString();
+        var url = `${supabaseUrl}/rest/v1/${SUPABASE_TABLE_PRESENCE}?select=session_id&topic=eq.${encodeURIComponent(topicText)}&last_seen=gte.${encodeURIComponent(cutoff)}`;
+        var response = await fetch(url, {
+            method: "GET",
+            headers: {
+                apikey: supabaseAnonKey,
+                Authorization: `Bearer ${supabaseAnonKey}`
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error(await response.text());
+        }
+
+        var rows = JSON.parse(await response.text() || "[]");
+        return rows.length;
+    }
+
+    async function refreshVisibleTopicPresence() {
+        if (!displayedTopicRows.length) {
+            return;
+        }
+
+        var cards = Array.prototype.slice.call(takeParent.querySelectorAll('.take-box[data-display-index]'));
+        await Promise.all(cards.map(async function (card) {
+            var topicText = card.dataset.topic || '';
+            var target = card.querySelector('.topic-online');
+            if (!target || !topicText) {
+                return;
+            }
+
+            try {
+                var onlineCount = await fetchTopicOnlineCount(topicText);
+                // Ensure this card still represents the same topic after async fetch.
+                if (card.dataset.topic !== topicText) {
+                    return;
+                }
+                target.textContent = `${onlineCount} ${onlineCount === 1 ? 'person is' : 'people are'} online in this chat`;
+            } catch (error) {
+                target.textContent = 'Online count unavailable';
+            }
+        }));
+    }
+
+    function setTopicBrowseMetaText(text) {
+        if (topicBrowseMeta) {
+            topicBrowseMeta.textContent = text;
+        }
+    }
+
+    function renderTopicsFromQuery() {
+        var query = topicSearchInput ? topicSearchInput.value.trim().toLowerCase() : '';
+        var pool = allTopicRows.slice();
+
+        if (query) {
+            pool = pool.filter(function (row) {
+                return String(row.topic || '').toLowerCase().indexOf(query) !== -1;
+            });
+        }
+
+        var randomized = shuffleRows(pool);
+        displayedTopicRows = randomized.slice(0, TOPIC_SAMPLE_LIMIT);
+
+        resetTopics();
+        displayedTopicRows.forEach(function (row, idx) {
+            addPrompt(row.topic, row.author, row.created_at, idx);
+        });
+
+        if (!allTopicRows.length) {
+            setTopicBrowseMetaText('No topics yet. Create one above.');
+            return;
+        }
+
+        if (!displayedTopicRows.length) {
+            setTopicBrowseMetaText(query
+                ? `No topics match "${topicSearchInput.value.trim()}".`
+                : 'No topics available.');
+            return;
+        }
+
+        if (query) {
+            setTopicBrowseMetaText(`Showing ${displayedTopicRows.length} random match${displayedTopicRows.length === 1 ? '' : 'es'} out of ${pool.length}.`);
+        } else {
+            setTopicBrowseMetaText(`Showing ${displayedTopicRows.length} random topic${displayedTopicRows.length === 1 ? '' : 's'} out of ${allTopicRows.length}.`);
+        }
+
+        refreshVisibleTopicPresence().catch(function (error) {
+            console.warn('topic presence refresh failed:', error);
+        });
     }
 
     async function loadFromSupabase() {
@@ -279,18 +412,15 @@
             }
 
             var rows = await response.json();
-            resetTopics();
+            allTopicRows = rows || [];
+            renderTopicsFromQuery();
 
             if (!rows.length) {
                 setStatus("No debate topics found yet.");
                 return;
             }
 
-            rows.forEach(function (row) {
-                addPrompt(row.topic, row.author, row.created_at);
-            });
-
-            setStatus(`Loaded ${rows.length} topic${rows.length === 1 ? "" : "s"} from Supabase.`);
+            setStatus(`Loaded ${rows.length} topic${rows.length === 1 ? "" : "s"} from Supabase. Showing random sample.`);
         } catch (error) {
             setStatus(error instanceof Error ? error.message : "Something went wrong.");
         }
@@ -409,6 +539,10 @@
             clearInterval(homePresenceRefreshId);
         }
 
+        if (visibleTopicPresenceRefreshId) {
+            clearInterval(visibleTopicPresenceRefreshId);
+        }
+
         homePresenceHeartbeatId = setInterval(function () {
             upsertHomePresence().catch(function (error) {
                 console.warn("home presence heartbeat failed:", error);
@@ -420,9 +554,20 @@
                 console.warn("home presence refresh failed:", error);
             });
         }, 5000);
+
+        visibleTopicPresenceRefreshId = setInterval(function () {
+            refreshVisibleTopicPresence().catch(function (error) {
+                console.warn("topic presence refresh failed:", error);
+            });
+        }, 5000);
     }
 
     takeForm.addEventListener("submit", submitTake);
+    if (topicSearchInput) {
+        topicSearchInput.addEventListener('input', function () {
+            renderTopicsFromQuery();
+        });
+    }
 
     // keep homepage author field in sync with cookie
     (function(){
