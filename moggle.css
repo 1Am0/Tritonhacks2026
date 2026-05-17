@@ -349,6 +349,29 @@ body {
 	text-align: left;
 }
 
+.take-meta-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	margin: 0 0 20px;
+}
+
+.take-meta-row .take-meta {
+	margin: 0;
+}
+
+.take-meta-left {
+	flex: 1 1 auto;
+}
+
+.topic-online {
+	flex: 0 0 auto;
+	text-align: right;
+	color: var(--foreground-muted);
+	white-space: nowrap;
+}
+
 .take-box button {
 	width: 100%;
 	padding: 14px 20px;
@@ -367,6 +390,47 @@ body {
 	color: white;
 	transform: none;
 	box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+/* ============================================
+   TOPIC BROWSER
+   ============================================ */
+.topic-browser {
+	max-width: 720px;
+	margin-bottom: 14px;
+	padding: 16px;
+	background: var(--background-card);
+	backdrop-filter: blur(12px);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-md);
+	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+
+#topicSearch {
+	width: 100%;
+	padding: 14px 16px;
+	background: var(--background);
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius-md);
+	font-size: 0.95rem;
+	color: var(--foreground);
+	transition: all 0.2s ease;
+}
+
+#topicSearch::placeholder {
+	color: var(--foreground-subtle);
+}
+
+#topicSearch:focus {
+	outline: none;
+	border-color: var(--primary);
+	box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+.topic-browse-meta {
+	margin: 8px 0 0;
+	font-size: 0.8rem;
+	color: var(--foreground-muted);
 }
 
 /* ============================================
@@ -400,6 +464,10 @@ h2 {
 	.hero-card h1 {
 		font-size: 1.75rem;
 	}
+
+	.topic-browser {
+		max-width: none;
+	}
 }
 
 @media (max-width: 480px) {
@@ -413,5 +481,16 @@ h2 {
 
 	.take-box {
 		padding: 20px;
+	}
+
+	.take-meta-row {
+		align-items: flex-start;
+		flex-direction: column;
+		gap: 4px;
+	}
+
+	.topic-online {
+		text-align: left;
+		white-space: normal;
 	}
 }
