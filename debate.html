@@ -28,6 +28,10 @@
 
     <section id="chatSection" class="chat-section">
         <h3>Live Chat</h3>
+        <div id="topicStats" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px;color:#444;font-size:0.95rem;">
+            <span><strong id="onlineCount">0</strong> online now</span>
+            <span>Last message: <strong id="lastMessageTime">No messages yet</strong></span>
+        </div>
         <div id="messages" style="border:1px solid #ccc;padding:8px;height:300px;overflow:auto;background:#fff;margin-bottom:8px;"></div>
         <form id="messageForm">
             <input id="authorInput" type="text" placeholder="Your name" required style="width:25%;padding:6px;margin-right:8px;" />
@@ -40,6 +44,8 @@
 <script src="./supabase-config.js"></script>
 <script>
     const topicDisplay = document.getElementById("topicDisplay");
+    const onlineCountEl = document.getElementById("onlineCount");
+    const lastMessageTimeEl = document.getElementById("lastMessageTime");
     const messagesEl = document.getElementById("messages");
     const messageForm = document.getElementById("messageForm");
     const authorInput = document.getElementById("authorInput");
@@ -55,16 +61,21 @@
     }
 
     const debateTopic = getCookie("debateTopic");
+    const topicKey = debateTopic || "no-topic";
     topicDisplay.textContent = debateTopic
         ? `Debate Topic Is: ${debateTopic}`
         : "Debate Topic Is: No topic selected";
 
     // Supabase REST setup (mirrors index.html approach)
     const SUPABASE_TABLE_MESSAGES = "debate_messages";
+    const SUPABASE_TABLE_PRESENCE = "debate_topic_presence";
     const SUPABASE_ENV = window.SUPABASE_ENV || {};
     let supabaseUrl = "";
     let supabaseAnonKey = "";
     let configLoaded = false;
+    let sessionId = getSessionId();
+    let presenceHeartbeatId = null;
+    let presenceRefreshId = null;
 
     async function loadSupabaseConfig() {
         var envConfig = SUPABASE_ENV;
@@ -82,6 +93,20 @@
         chatStatus.textContent = msg;
     }
 
+    function getSessionId() {
+        const storageKey = "debate-session-id";
+        let existing = window.sessionStorage.getItem(storageKey);
+
+        if (!existing) {
+            existing = (window.crypto && window.crypto.randomUUID)
+                ? window.crypto.randomUUID()
+                : `sess-${Math.random().toString(36).slice(2)}-${Date.now()}`;
+            window.sessionStorage.setItem(storageKey, existing);
+        }
+
+        return existing;
+    }
+
     function appendMessage(author, text, createdAt) {
         const wrapper = document.createElement('div');
         wrapper.style.padding = '6px';
@@ -89,6 +114,20 @@
         wrapper.innerHTML = `<strong>${author || 'Anon'}</strong>: ${escapeHtml(text)} <span style="color:#666;font-size:0.8em;float:right">${createdAt? new Date(createdAt).toLocaleTimeString():''}</span>`;
         messagesEl.appendChild(wrapper);
         messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    function updateLastMessageLabel(rows) {
+        if (!rows.length) {
+            lastMessageTimeEl.textContent = 'No messages yet';
+            return;
+        }
+
+        const lastRow = rows[rows.length - 1];
+        lastMessageTimeEl.textContent = new Date(lastRow.created_at).toLocaleString();
+    }
+
+    function updateOnlineCountLabel(count) {
+        onlineCountEl.textContent = String(count);
     }
 
     function escapeHtml(unsafe) {
@@ -123,6 +162,7 @@
             const rows = JSON.parse(text || '[]');
             messagesEl.innerHTML = '';
             rows.forEach(r => appendMessage(r.author, r.message, r.created_at));
+            updateLastMessageLabel(rows);
             // track last seen timestamp for polling
             if (rows.length) {
                 lastTimestamp = rows[rows.length - 1].created_at;
@@ -168,6 +208,7 @@
             if (rows.length) {
                 rows.forEach(r => appendMessage(r.author, r.message, r.created_at));
                 lastTimestamp = rows[rows.length - 1].created_at;
+                lastMessageTimeEl.textContent = new Date(lastTimestamp).toLocaleString();
             }
             setChatStatus(`Loaded ${rows.length} new message${rows.length===1?'':'s'}.`);
         } catch (err) {
@@ -179,6 +220,90 @@
         if (pollId) clearInterval(pollId);
         pollIntervalMs = intervalMs || pollIntervalMs;
         pollId = setInterval(loadNewMessages, pollIntervalMs);
+    }
+
+    async function upsertPresence() {
+        if (!configLoaded || !debateTopic) {
+            return;
+        }
+
+        const payload = {
+            topic: debateTopic,
+            session_id: sessionId,
+            display_name: authorInput.value.trim() || null,
+            last_seen: new Date().toISOString()
+        };
+
+        const res = await fetch(`${supabaseUrl}/rest/v1/${SUPABASE_TABLE_PRESENCE}?on_conflict=topic,session_id`, {
+            method: 'POST',
+            headers: {
+                apikey: supabaseAnonKey,
+                Authorization: `Bearer ${supabaseAnonKey}`,
+                'Content-Type': 'application/json',
+                Prefer: 'resolution=merge-duplicates,return=representation'
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (!res.ok) {
+            throw new Error(await res.text());
+        }
+    }
+
+    async function refreshPresenceCount() {
+        if (!configLoaded || !debateTopic) {
+            updateOnlineCountLabel(0);
+            return;
+        }
+
+        const cutoff = new Date(Date.now() - 30000).toISOString();
+        const topicFilter = `topic=eq.${encodeURIComponent(debateTopic)}&last_seen=gte.${encodeURIComponent(cutoff)}`;
+        const url = `${supabaseUrl}/rest/v1/${SUPABASE_TABLE_PRESENCE}?select=session_id&${topicFilter}`;
+
+        const res = await fetch(url, {
+            method: 'GET',
+            headers: {
+                apikey: supabaseAnonKey,
+                Authorization: `Bearer ${supabaseAnonKey}`
+            }
+        });
+
+        if (!res.ok) {
+            throw new Error(await res.text());
+        }
+
+        const rows = JSON.parse(await res.text() || '[]');
+        updateOnlineCountLabel(rows.length);
+    }
+
+    function startPresenceTracking() {
+        if (!debateTopic) {
+            updateOnlineCountLabel(0);
+            return;
+        }
+
+        upsertPresence().catch(err => console.warn('presence heartbeat failed:', err));
+        refreshPresenceCount().catch(err => console.warn('presence refresh failed:', err));
+
+        if (presenceHeartbeatId) clearInterval(presenceHeartbeatId);
+        if (presenceRefreshId) clearInterval(presenceRefreshId);
+
+        presenceHeartbeatId = setInterval(() => {
+            upsertPresence().catch(err => console.warn('presence heartbeat failed:', err));
+        }, 10000);
+
+        presenceRefreshId = setInterval(() => {
+            refreshPresenceCount().catch(err => console.warn('presence refresh failed:', err));
+        }, 5000);
+
+        window.addEventListener('beforeunload', () => {
+            if (!configLoaded || !debateTopic) {
+                return;
+            }
+
+            const url = `${supabaseUrl}/rest/v1/${SUPABASE_TABLE_PRESENCE}?topic=eq.${encodeURIComponent(debateTopic)}&session_id=eq.${encodeURIComponent(sessionId)}`;
+            navigator.sendBeacon?.(url, new Blob([], { type: 'application/json' }));
+        });
     }
 
     async function sendMessage(e) {
@@ -205,6 +330,7 @@
 
             // After add, reload messages (per your requirement)
             await loadMessages();
+            await refreshPresenceCount();
             messageInput.value = '';
             setChatStatus('Sent.');
         } catch (err) {
@@ -218,6 +344,7 @@
     loadSupabaseConfig().then(function(){
         loadMessages().then(function(){
             startPolling(3000);
+            startPresenceTracking();
         });
     }).catch(err => setChatStatus(err instanceof Error?err.message:String(err)));
 </script>

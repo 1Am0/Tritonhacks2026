@@ -9,6 +9,7 @@
         <section class="hero-card">
             <h3>Couldn't find any interesting 🔥 takes?</h3>
             <h1>Start Your Own Debatle 🗣️</h1>
+            <p id="homePresence" aria-live="polite" style="margin:0 0 12px;color:#555;font-weight:600;">0 people are online right now</p>
             <form id="takeForm" class="take-form">
                 <label for="authorText">Author</label>
                 <input id="authorText" type="text" placeholder="Your name" required>
@@ -29,6 +30,8 @@
 <script src="./supabase-config.js"></script>
 <script>
     const SUPABASE_TABLE = "debate_topics";
+    const SUPABASE_TABLE_PRESENCE = "debate_topic_presence";
+    const HOME_TOPIC_KEY = "__lobby__";
     const SUPABASE_ENV = window.SUPABASE_ENV || {};
 
     var takeForm = document.getElementById("takeForm");
@@ -37,11 +40,15 @@
     var takeTextInput = document.getElementById("takeText");
     var authorTextInput = document.getElementById("authorText");
     var statusMessage = document.getElementById("statusMessage");
+    var homePresence = document.getElementById("homePresence");
 
     var takeList = [];
     var supabaseUrl = "";
     var supabaseAnonKey = "";
     var configLoaded = false;
+    var homeSessionId = getHomeSessionId();
+    var homePresenceHeartbeatId = null;
+    var homePresenceRefreshId = null;
 
     function parseEnvFile(envText) {
         return envText.split(/\r?\n/).reduce(function (config, line) {
@@ -83,6 +90,24 @@
 
     function setStatus(message) {
         statusMessage.textContent = message;
+    }
+
+    function setHomePresence(message) {
+        homePresence.textContent = message;
+    }
+
+    function getHomeSessionId() {
+        var storageKey = "home-debate-session-id";
+        var existing = window.sessionStorage.getItem(storageKey);
+
+        if (!existing) {
+            existing = (window.crypto && window.crypto.randomUUID)
+                ? window.crypto.randomUUID()
+                : `home-${Math.random().toString(36).slice(2)}-${Date.now()}`;
+            window.sessionStorage.setItem(storageKey, existing);
+        }
+
+        return existing;
     }
 
     function goToDebate(event) {
@@ -204,10 +229,97 @@
         }
     }
 
+    async function upsertHomePresence() {
+        if (!configLoaded) {
+            return;
+        }
+
+        var payload = {
+            topic: HOME_TOPIC_KEY,
+            session_id: homeSessionId,
+            display_name: authorTextInput.value.trim() || null,
+            last_seen: new Date().toISOString()
+        };
+
+        var response = await fetch(`${supabaseUrl}/rest/v1/${SUPABASE_TABLE_PRESENCE}?on_conflict=topic,session_id`, {
+            method: "POST",
+            headers: {
+                apikey: supabaseAnonKey,
+                Authorization: `Bearer ${supabaseAnonKey}`,
+                "Content-Type": "application/json",
+                Prefer: "resolution=merge-duplicates,return=representation"
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+            throw new Error(await response.text());
+        }
+    }
+
+    async function refreshHomePresence() {
+        if (!configLoaded) {
+            setHomePresence("0 people are online right now");
+            return;
+        }
+
+        var cutoff = new Date(Date.now() - 30000).toISOString();
+        var url = `${supabaseUrl}/rest/v1/${SUPABASE_TABLE_PRESENCE}?select=session_id&topic=eq.${encodeURIComponent(HOME_TOPIC_KEY)}&last_seen=gte.${encodeURIComponent(cutoff)}`;
+
+        var response = await fetch(url, {
+            method: "GET",
+            headers: {
+                apikey: supabaseAnonKey,
+                Authorization: `Bearer ${supabaseAnonKey}`
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error(await response.text());
+        }
+
+        var rows = JSON.parse(await response.text() || "[]");
+        setHomePresence(`${rows.length} ${rows.length === 1 ? "person is" : "people are"} online right now`);
+    }
+
+    function startHomePresenceTracking() {
+        upsertHomePresence().catch(function (error) {
+            console.warn("home presence heartbeat failed:", error);
+        });
+
+        refreshHomePresence().catch(function (error) {
+            console.warn("home presence refresh failed:", error);
+        });
+
+        if (homePresenceHeartbeatId) {
+            clearInterval(homePresenceHeartbeatId);
+        }
+
+        if (homePresenceRefreshId) {
+            clearInterval(homePresenceRefreshId);
+        }
+
+        homePresenceHeartbeatId = setInterval(function () {
+            upsertHomePresence().catch(function (error) {
+                console.warn("home presence heartbeat failed:", error);
+            });
+        }, 10000);
+
+        homePresenceRefreshId = setInterval(function () {
+            refreshHomePresence().catch(function (error) {
+                console.warn("home presence refresh failed:", error);
+            });
+        }, 5000);
+    }
+
     takeForm.addEventListener("submit", submitTake);
 
     loadSupabaseConfig().then(loadFromSupabase).catch(function (error) {
         setStatus(error instanceof Error ? error.message : "Something went wrong.");
+    });
+
+    loadSupabaseConfig().then(startHomePresenceTracking).catch(function (error) {
+        console.warn("home presence init failed:", error);
     });
 </script>
 </html>
