@@ -32,9 +32,23 @@
             <span><strong id="onlineCount">0</strong> online now</span>
             <span>Last message: <strong id="lastMessageTime">No messages yet</strong></span>
         </div>
+        <div id="aiPanel" style="border:1px solid #d8d8d8;background:#fafafa;border-radius:8px;padding:10px;margin-bottom:10px;">
+            <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center;">
+                <strong>AI Debate Readout</strong>
+                <span id="aiStatus" style="font-size:0.9rem;color:#666;">Waiting for 10 messages...</span>
+            </div>
+            <div id="aiSummary" style="margin-top:8px;font-size:0.95rem;">No analysis yet.</div>
+            <div id="aiWinner" style="margin-top:6px;font-weight:600;"></div>
+            <ul id="aiParticipants" style="margin:8px 0 0 18px;padding:0;"></ul>
+        </div>
         <div id="messages" style="border:1px solid #ccc;padding:8px;height:300px;overflow:auto;background:#fff;margin-bottom:8px;"></div>
         <form id="messageForm">
             <input id="authorInput" type="text" placeholder="Your name" required style="width:25%;padding:6px;margin-right:8px;" />
+            <select id="stanceInput" required style="width:18%;padding:6px;margin-right:8px;">
+                <option value="" selected disabled>Pick a side</option>
+                <option value="agree">Agree</option>
+                <option value="disagree">Disagree</option>
+            </select>
             <input id="messageInput" type="text" placeholder="Write a message" required style="width:55%;padding:6px;margin-right:8px;" />
             <button id="sendMessage" type="submit">Send</button>
         </form>
@@ -48,9 +62,14 @@
     const topicDisplay = document.getElementById("topicDisplay");
     const onlineCountEl = document.getElementById("onlineCount");
     const lastMessageTimeEl = document.getElementById("lastMessageTime");
+    const aiStatusEl = document.getElementById("aiStatus");
+    const aiSummaryEl = document.getElementById("aiSummary");
+    const aiWinnerEl = document.getElementById("aiWinner");
+    const aiParticipantsEl = document.getElementById("aiParticipants");
     const messagesEl = document.getElementById("messages");
     const messageForm = document.getElementById("messageForm");
     const authorInput = document.getElementById("authorInput");
+    const stanceInput = document.getElementById("stanceInput");
     const messageInput = document.getElementById("messageInput");
     const chatStatus = document.getElementById("chatStatus");
 
@@ -71,9 +90,11 @@
     // Supabase REST setup (mirrors index.html approach)
     const SUPABASE_TABLE_MESSAGES = "debate_messages";
     const SUPABASE_TABLE_PRESENCE = "debate_topic_presence";
+    const SUPABASE_TABLE_AI_RESULTS = "debate_ai_results";
     const SUPABASE_ENV = window.SUPABASE_ENV || {};
     let supabaseUrl = "";
     let supabaseAnonKey = "";
+    let googleApiKey = "";
     let configLoaded = false;
     let sessionId = getSessionId();
     let presenceHeartbeatId = null;
@@ -83,8 +104,9 @@
         var envConfig = SUPABASE_ENV;
         supabaseUrl = envConfig.SUPABASE_URL || envConfig.NEXT_PUBLIC_SUPABASE_URL || "";
         supabaseAnonKey = envConfig.SUPABASE_ANON_KEY || envConfig.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+        googleApiKey = envConfig.GOOGLE_API_KEY || envConfig.NEXT_PUBLIC_GOOGLE_API_KEY || "";
 
-        if (!supabaseUrl || !supabaseAnonKey) {
+        if (!supabaseUrl || !supabaseAnonKey || !googleApiKey) {
             throw new Error("Supabase config is missing from supabase-config.js.");
         }
 
@@ -109,7 +131,20 @@
         return existing;
     }
 
-    function appendMessage(author, text, createdAt, messageSessionId) {
+    function getSelectedStance() {
+        const stance = stanceInput.value;
+        return stance === 'agree' || stance === 'disagree' ? stance : null;
+    }
+
+    function appendMessage(author, text, createdAt, messageSessionId, messageId) {
+        if (messageId && messageIds.has(messageId)) {
+            return false;
+        }
+
+        if (messageId) {
+            messageIds.add(messageId);
+        }
+
         const wrapper = document.createElement('div');
         const isOwnMessage = messageSessionId && messageSessionId === sessionId;
         wrapper.style.padding = '6px';
@@ -121,6 +156,44 @@
         wrapper.innerHTML = `<strong>${author || 'Anon'}</strong>${isOwnMessage ? ' <span style="font-size:0.75rem;color:#2e7d32;">(you)</span>' : ''}: ${escapeHtml(text)} <span style="color:#666;font-size:0.8em;float:right">${createdAt? new Date(createdAt).toLocaleTimeString():''}</span>`;
         messagesEl.appendChild(wrapper);
         messagesEl.scrollTop = messagesEl.scrollHeight;
+        return true;
+    }
+
+    function setAiStatus(text) {
+        const aiStatusEl = document.getElementById('aiStatus');
+        if (aiStatusEl) {
+            aiStatusEl.textContent = text;
+        }
+    }
+
+    function renderAiResult(result) {
+        const aiSummaryEl = document.getElementById('aiSummary');
+        const aiWinnerEl = document.getElementById('aiWinner');
+        const aiParticipantsEl = document.getElementById('aiParticipants');
+
+        if (!aiSummaryEl || !aiWinnerEl || !aiParticipantsEl) {
+            return;
+        }
+
+        if (!result) {
+            aiSummaryEl.textContent = 'No analysis yet.';
+            aiWinnerEl.textContent = '';
+            aiParticipantsEl.innerHTML = '';
+            return;
+        }
+
+        latestAiResult = result;
+        aiSummaryEl.textContent = result.summary || 'AI analysis complete.';
+        aiWinnerEl.textContent = result.winner_display_name
+            ? `Current winner: ${result.winner_display_name}`
+            : 'Current winner: pending';
+        aiParticipantsEl.innerHTML = '';
+
+        (result.participants || []).forEach((participant) => {
+            const item = document.createElement('li');
+            item.textContent = `${participant.display_name || participant.session_id}: ${participant.moved_percentage}% moved (${participant.stance || 'unknown'})`;
+            aiParticipantsEl.appendChild(item);
+        });
     }
 
     function updateLastMessageLabel(rows) {
@@ -146,6 +219,147 @@
             .replace(/'/g, "&#039;");
     }
 
+    function extractGeminiText(responseJson) {
+        const candidates = responseJson && responseJson.candidates ? responseJson.candidates : [];
+        for (const candidate of candidates) {
+            const parts = candidate && candidate.content && candidate.content.parts ? candidate.content.parts : [];
+            for (const part of parts) {
+                if (part && typeof part.text === 'string') {
+                    return part.text;
+                }
+            }
+        }
+
+        return '';
+    }
+
+    async function fetchAiResultCache() {
+        const url = `${supabaseUrl}/rest/v1/${SUPABASE_TABLE_AI_RESULTS}?select=topic,analyzed_message_count,result,updated_at&topic=eq.${encodeURIComponent(debateTopic)}&limit=1`;
+        const res = await fetch(url, {
+            method: 'GET',
+            headers: {
+                apikey: supabaseAnonKey,
+                Authorization: `Bearer ${supabaseAnonKey}`
+            }
+        });
+
+        if (!res.ok) {
+            throw new Error(await res.text());
+        }
+
+        const rows = JSON.parse(await res.text() || '[]');
+        return rows[0] || null;
+    }
+
+    async function upsertAiResult(result, analyzedMessageCount) {
+        const payload = {
+            topic: debateTopic,
+            analyzed_message_count: analyzedMessageCount,
+            result,
+            updated_at: new Date().toISOString()
+        };
+
+        const res = await fetch(`${supabaseUrl}/rest/v1/${SUPABASE_TABLE_AI_RESULTS}?on_conflict=topic`, {
+            method: 'POST',
+            headers: {
+                apikey: supabaseAnonKey,
+                Authorization: `Bearer ${supabaseAnonKey}`,
+                'Content-Type': 'application/json',
+                Prefer: 'resolution=merge-duplicates,return=representation'
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (!res.ok) {
+            throw new Error(await res.text());
+        }
+
+        return JSON.parse(await res.text() || '[]')[0] || null;
+    }
+
+    async function fetchAiParticipants() {
+        const url = `${supabaseUrl}/rest/v1/${SUPABASE_TABLE_PRESENCE}?select=session_id,display_name,stance&topic=eq.${encodeURIComponent(debateTopic)}`;
+        const res = await fetch(url, {
+            method: 'GET',
+            headers: {
+                apikey: supabaseAnonKey,
+                Authorization: `Bearer ${supabaseAnonKey}`
+            }
+        });
+
+        if (!res.ok) {
+            throw new Error(await res.text());
+        }
+
+        return JSON.parse(await res.text() || '[]');
+    }
+
+    async function analyzeLastTenMessages(force = false) {
+        if (aiAnalysisInFlight || !debateTopic || !googleApiKey) {
+            return;
+        }
+
+        const currentCount = allMessages.length;
+        if (currentCount < 10) {
+            setAiStatus(`Waiting for 10 messages... (${currentCount}/10)`);
+            return;
+        }
+
+        if (!force && currentCount % 10 !== 0) {
+            return;
+        }
+
+        aiAnalysisInFlight = true;
+        setAiStatus(`Analyzing last 10 messages at message #${currentCount}...`);
+
+        try {
+            const cache = await fetchAiResultCache().catch(() => null);
+            if (cache && Number(cache.analyzed_message_count || 0) >= currentCount) {
+                lastAnalyzedMessageCount = Number(cache.analyzed_message_count || 0);
+                renderAiResult(cache.result);
+                setAiStatus(`Showing cached analysis for ${lastAnalyzedMessageCount} messages.`);
+                return;
+            }
+
+            const [participants, recentMessages] = await Promise.all([
+                fetchAiParticipants(),
+                Promise.resolve(allMessages.slice(-10)),
+            ]);
+
+            const prompt = `You are scoring a live debate.\nTopic: ${debateTopic}\n\nParticipants:\n${JSON.stringify(participants, null, 2)}\n\nLast 10 messages only:\n${JSON.stringify(recentMessages, null, 2)}\n\nTask:\n- For each participant, estimate how persuaded they appear to be by the opposing side.\n- Return a percentage from 0 to 100 for each participant, where 0 = not moved at all and 100 = fully moved.\n- Use the participant's explicit stance if present. If stance is missing, infer it from the conversation.\n- Identify the current winner as the participant whose arguments appear to be persuading others the most.\n- Return JSON only in this shape:\n{\n  \"topic\": \"...\",\n  \"winner_session_id\": \"...\",\n  \"winner_display_name\": \"...\",\n  \"summary\": \"...\",\n  \"participants\": [\n    {\n      \"session_id\": \"...\",\n      \"display_name\": \"...\",\n      \"stance\": \"agree|disagree|null\",\n      \"moved_percentage\": 0,\n      \"reason\": \"...\"\n    }\n  ]\n}\n`;
+
+            const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(googleApiKey)}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+                    generationConfig: {
+                        temperature: 0.2,
+                        responseMimeType: 'application/json'
+                    }
+                })
+            });
+
+            const aiBody = await aiResponse.text();
+            if (!aiResponse.ok) {
+                throw new Error(aiBody || 'Gemini request failed');
+            }
+
+            const parsed = JSON.parse(extractGeminiText(JSON.parse(aiBody)) || '{}');
+            const saved = await upsertAiResult(parsed, currentCount);
+            lastAnalyzedMessageCount = currentCount;
+            renderAiResult(saved ? saved.result : parsed);
+            setAiStatus(`Analyzed last 10 messages at message #${currentCount}.`);
+        } catch (err) {
+            console.warn('AI analysis failed:', err);
+            setAiStatus(err instanceof Error ? err.message : String(err));
+        } finally {
+            aiAnalysisInFlight = false;
+        }
+    }
+
     async function loadMessages() {
         try {
             if (!configLoaded) await loadSupabaseConfig();
@@ -167,14 +381,27 @@
             if (!res.ok) throw new Error(text || 'Supabase load failed');
 
             const rows = JSON.parse(text || '[]');
+            allMessages = [];
+            messageIds = new Set();
             messagesEl.innerHTML = '';
-            rows.forEach(r => appendMessage(r.author, r.message, r.created_at, r.session_id));
+            rows.forEach(r => {
+                if (appendMessage(r.author, r.message, r.created_at, r.session_id, r.id)) {
+                    allMessages.push(r);
+                }
+            });
             updateLastMessageLabel(rows);
             // track last seen timestamp for polling
             if (rows.length) {
                 lastTimestamp = rows[rows.length - 1].created_at;
             }
             setChatStatus(`Loaded ${rows.length} message${rows.length===1?'':'s'}.`);
+            const cachedAi = await fetchAiResultCache().catch(() => null);
+            if (cachedAi && cachedAi.result) {
+                lastAnalyzedMessageCount = Number(cachedAi.analyzed_message_count || 0);
+                renderAiResult(cachedAi.result);
+                setAiStatus(`Showing cached analysis for ${lastAnalyzedMessageCount} messages.`);
+            }
+            await analyzeLastTenMessages();
         } catch (err) {
             setChatStatus(err instanceof Error ? err.message : String(err));
         }
@@ -182,7 +409,13 @@
 
     let lastTimestamp = null;
     let realtimeChannel = null;
+    let aiRealtimeChannel = null;
     let supabaseClient = null;
+    let allMessages = [];
+    let messageIds = new Set();
+    let aiAnalysisInFlight = false;
+    let lastAnalyzedMessageCount = 0;
+    let latestAiResult = null;
 
     function getSupabaseClient() {
         if (supabaseClient) {
@@ -221,7 +454,10 @@
                             return;
                         }
 
-                        appendMessage(row.author, row.message, row.created_at, row.session_id);
+                        if (appendMessage(row.author, row.message, row.created_at, row.session_id, row.id)) {
+                            allMessages.push(row);
+                            analyzeLastTenMessages().catch(err => console.warn('AI analysis trigger failed:', err));
+                        }
                         lastTimestamp = row.created_at || lastTimestamp;
                         lastMessageTimeEl.textContent = row.created_at ? new Date(row.created_at).toLocaleString() : lastMessageTimeEl.textContent;
                     }
@@ -230,8 +466,28 @@
 
             realtimeChannel = channel;
 
+            if (!aiRealtimeChannel) {
+                aiRealtimeChannel = client.channel('ai_debate_results')
+                    .on(
+                        'postgres_changes',
+                        { event: '*', schema: 'public', table: SUPABASE_TABLE_AI_RESULTS },
+                        (payload) => {
+                            const row = payload.new || payload.old;
+                            if (!row || row.topic !== debateTopic) {
+                                return;
+                            }
+
+                            lastAnalyzedMessageCount = Number(row.analyzed_message_count || 0);
+                            renderAiResult(row.result);
+                            setAiStatus(`Updated live for ${lastAnalyzedMessageCount} messages.`);
+                        }
+                    )
+                    .subscribe();
+            }
+
             window.addEventListener('beforeunload', () => {
                 try { if (realtimeChannel) realtimeChannel.unsubscribe(); } catch (e) {}
+                try { if (aiRealtimeChannel) aiRealtimeChannel.unsubscribe(); } catch (e) {}
             });
 
             return Promise.resolve();
@@ -249,6 +505,7 @@
             topic: debateTopic,
             session_id: sessionId,
             display_name: authorInput.value.trim() || null,
+            stance: getSelectedStance(),
             last_seen: new Date().toISOString()
         };
 
@@ -314,6 +571,10 @@
             refreshPresenceCount().catch(err => console.warn('presence refresh failed:', err));
         }, 5000);
 
+        stanceInput.addEventListener('change', () => {
+            upsertPresence().catch(err => console.warn('presence update after stance change failed:', err));
+        });
+
         window.addEventListener('beforeunload', () => {
             if (!configLoaded || !debateTopic) {
                 return;
@@ -328,7 +589,12 @@
         e.preventDefault();
         const author = authorInput.value.trim();
         const message = messageInput.value.trim();
+        const stance = getSelectedStance();
         if (!message) return;
+        if (!stance) {
+            setChatStatus('Pick agree or disagree before sending your message.');
+            return;
+        }
         try {
             if (!configLoaded) await loadSupabaseConfig();
             setChatStatus('Sending...');
