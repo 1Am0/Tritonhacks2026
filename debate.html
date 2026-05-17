@@ -10,30 +10,6 @@
     <link rel="stylesheet" href="./arena.css">
 </head>
 <body>
-
-    <!-- Join Modal -->
-    <div id="joinModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="joinModalTitle">
-        <div class="modal-card">
-            <h2 id="joinModalTitle">Join the Debate</h2>
-            <p class="modal-subtitle" id="joinModalTopic"></p>
-            <form id="joinForm">
-                <div class="modal-field">
-                    <label for="joinName">Your Name</label>
-                    <input id="joinName" type="text" placeholder="Enter your name" autocomplete="off" required />
-                </div>
-                <div class="modal-field">
-                    <label>Pick a Side</label>
-                    <div class="stance-buttons">
-                        <button type="button" class="stance-btn" data-stance="agree">Agree</button>
-                        <button type="button" class="stance-btn" data-stance="disagree">Disagree</button>
-                    </div>
-                    <input type="hidden" id="joinStance" required />
-                </div>
-                <button class="modal-submit" type="submit" id="joinSubmit" disabled>Enter Arena</button>
-            </form>
-        </div>
-    </div>
-
     <h1>Debate Arena</h1>
     <h2 id="topicDisplay"></h2>
     <div id="debaterCams">
