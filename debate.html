@@ -4,21 +4,24 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Debate Arena</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="./arena.css">
 </head>
 <body>
-    <h1>Welcome to the Debate Arena</h1>
+    <h1>Debate Arena</h1>
     <h2 id="topicDisplay"></h2>
     <div id="debaterCams">
         <div class="cam">
-            <label>Template Cam 1</label>
+            <label>Debater 1</label>
             <video controls autoplay muted loop playsinline>
                 <source src="https://sample-videos.com/video123/mp4/720/big_buck_bunny_720p_1mb.mp4" type="video/mp4">
                 Your browser does not support the video tag.
             </video>
         </div>
         <div class="cam">
-            <label>Template Cam 2</label>
+            <label>Debater 2</label>
             <video controls autoplay muted loop playsinline>
                 <source src="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4" type="video/mp4">
                 Your browser does not support the video tag.
@@ -28,13 +31,13 @@
 
     <section id="chatSection" class="chat-section">
         <h3>Live Chat</h3>
-        <div id="topicStats" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px;color:#444;font-size:0.95rem;">
+        <div id="topicStats">
             <span><strong id="onlineCount">0</strong> online now</span>
             <span>Last message: <strong id="lastMessageTime">No messages yet</strong></span>
         </div>
         <div class="chat-layout">
             <div class="chat-main">
-                <div id="messages" style="border:1px solid #ccc;padding:8px;overflow:auto;background:#fff;margin-bottom:8px;"></div>
+                <div id="messages"></div>
                 <form id="messageForm">
                     <input id="authorInput" class="message-form-input" type="text" placeholder="Your name" required style="width:25%;margin-right:8px;" />
                     <select id="stanceInput" class="message-form-select" required style="width:18%;margin-right:8px;">

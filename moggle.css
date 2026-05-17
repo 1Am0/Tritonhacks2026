@@ -1,124 +1,315 @@
-body {
-	margin: 0;
-	min-height: 100vh;
-	font-family: Arial, Helvetica, sans-serif;
-	background: linear-gradient(180deg, #fff8f0 0%, #f4f7fb 100%);
-	color: #1f2937;
+/* ============================================
+   DESIGN TOKENS
+   ============================================ */
+:root {
+	--background: #0a0f1a;
+	--background-secondary: #111827;
+	--background-card: rgba(17, 24, 39, 0.8);
+	--foreground: #f1f5f9;
+	--foreground-muted: #94a3b8;
+	--foreground-subtle: #64748b;
+	--primary: #3b82f6;
+	--primary-hover: #2563eb;
+	--accent: #22d3ee;
+	--border: rgba(148, 163, 184, 0.12);
+	--border-strong: rgba(148, 163, 184, 0.2);
+	--success: #10b981;
+	--radius-sm: 8px;
+	--radius-md: 12px;
+	--radius-lg: 20px;
+	--radius-xl: 24px;
 }
 
-.page-shell {
-	min-height: 100vh;
-	display: grid;
-	grid-template-columns: minmax(280px, 460px) minmax(320px, 1fr);
-	gap: 32px;
-	padding: 32px;
+/* ============================================
+   BASE STYLES
+   ============================================ */
+* {
 	box-sizing: border-box;
 }
 
-.hero-card {
-	background: rgba(255, 255, 255, 0.9);
-	border: 1px solid rgba(15, 23, 42, 0.08);
-	border-radius: 24px;
-	padding: 28px;
-	box-shadow: 0 20px 60px rgba(15, 23, 42, 0.08);
+html {
+	background: var(--background);
 }
 
-.take-form {
+body {
+	margin: 0;
+	min-height: 100vh;
+	font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+	background: var(--background);
+	background-image: 
+		radial-gradient(ellipse 80% 50% at 50% -20%, rgba(59, 130, 246, 0.15), transparent),
+		radial-gradient(ellipse 60% 40% at 100% 100%, rgba(34, 211, 238, 0.08), transparent);
+	color: var(--foreground);
+	line-height: 1.6;
+}
+
+/* ============================================
+   LAYOUT
+   ============================================ */
+.page-shell {
+	min-height: 100vh;
 	display: grid;
-	gap: 12px;
-	margin-top: 20px;
+	grid-template-columns: minmax(320px, 480px) minmax(400px, 1fr);
+	gap: 48px;
+	padding: 48px;
+	max-width: 1600px;
+	margin: 0 auto;
 }
 
-.take-form label {
-	font-size: 0.95rem;
+/* ============================================
+   HERO CARD
+   ============================================ */
+.hero-card {
+	background: var(--background-card);
+	backdrop-filter: blur(20px);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-xl);
+	padding: 40px;
+	box-shadow: 
+		0 0 0 1px rgba(255, 255, 255, 0.03) inset,
+		0 24px 48px -12px rgba(0, 0, 0, 0.4);
+	position: sticky;
+	top: 48px;
+	align-self: start;
+}
+
+.hero-card h3 {
+	margin: 0 0 8px;
+	font-size: 0.875rem;
+	font-weight: 500;
+	color: var(--foreground-muted);
+	letter-spacing: 0.02em;
+}
+
+.hero-card h1 {
+	margin: 0 0 24px;
+	font-size: 2.25rem;
 	font-weight: 700;
+	line-height: 1.2;
+	background: linear-gradient(135deg, var(--foreground) 0%, var(--accent) 100%);
+	-webkit-background-clip: text;
+	-webkit-text-fill-color: transparent;
+	background-clip: text;
 }
 
-.take-form input,
-.take-form button {
-	border-radius: 14px;
-	border: 1px solid rgba(15, 23, 42, 0.16);
-	padding: 14px 16px;
-	font-size: 1rem;
+#homePresence {
+	margin: 0 0 24px;
+	padding: 12px 16px;
+	background: rgba(34, 211, 238, 0.08);
+	border: 1px solid rgba(34, 211, 238, 0.2);
+	border-radius: var(--radius-md);
+	font-size: 0.875rem;
+	font-weight: 500;
+	color: var(--accent);
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+#homePresence::before {
+	content: '';
+	width: 8px;
+	height: 8px;
+	background: var(--accent);
+	border-radius: 50%;
+	animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+	0%, 100% { opacity: 1; transform: scale(1); }
+	50% { opacity: 0.5; transform: scale(0.9); }
+}
+
+/* ============================================
+   FORM STYLES
+   ============================================ */
+.take-form {
+	display: flex;
+	flex-direction: column;
+	gap: 20px;
+}
+
+.form-group {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.take-form label,
+.form-group label {
+	display: block;
+	font-size: 0.75rem;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+	color: var(--foreground-muted);
 }
 
 .take-form input {
-	background: #fff;
+	width: 100%;
+	padding: 16px 20px;
+	background: var(--background);
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius-md);
+	font-size: 1rem;
+	color: var(--foreground);
+	transition: all 0.2s ease;
 }
 
-.take-form button {
-	background: #111827;
-	color: #fff;
-	font-weight: 700;
-	cursor: pointer;
+.take-form input::placeholder {
+	color: var(--foreground-subtle);
 }
 
-.take-form button:hover {
-	background: #1f2937;
+.take-form input:focus {
+	outline: none;
+	border-color: var(--primary);
+	box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
 }
 
 .take-actions {
 	display: flex;
 	gap: 12px;
-	flex-wrap: wrap;
+	margin-top: 8px;
 }
 
-.take-actions button {
-	flex: 1 1 180px;
+.take-actions button,
+.take-form button {
+	flex: 1;
+	padding: 16px 24px;
+	background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
+	color: white;
+	font-size: 0.9375rem;
+	font-weight: 600;
+	border: none;
+	border-radius: var(--radius-md);
+	cursor: pointer;
+	transition: all 0.2s ease;
+	box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+.take-actions button:hover,
+.take-form button:hover {
+	transform: translateY(-2px);
+	box-shadow: 0 8px 20px rgba(59, 130, 246, 0.4);
+}
+
+.take-actions button:active,
+.take-form button:active {
+	transform: translateY(0);
 }
 
 #statusMessage {
 	min-height: 1.5em;
 	margin: 0;
-	font-size: 0.95rem;
-	color: #475569;
+	font-size: 0.875rem;
+	color: var(--foreground-muted);
 }
 
+/* ============================================
+   TAKE/TOPIC CARDS
+   ============================================ */
 #takeParent {
 	display: grid;
-	gap: 16px;
+	gap: 20px;
 	align-content: start;
 }
 
 .take-box {
 	width: 100%;
-	box-sizing: border-box;
-	border: 1px solid rgba(15, 23, 42, 0.12);
-	background: rgba(255, 255, 255, 0.92);
-	border-radius: 20px;
-	padding: 20px;
-	box-shadow: 0 12px 32px rgba(15, 23, 42, 0.06);
+	background: var(--background-card);
+	backdrop-filter: blur(16px);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-lg);
+	padding: 28px;
+	transition: all 0.3s ease;
+	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+}
+
+.take-box:hover {
+	border-color: var(--border-strong);
+	transform: translateY(-4px);
+	box-shadow: 0 16px 40px rgba(0, 0, 0, 0.3);
 }
 
 .take-box h3 {
-	margin-top: 0;
+	margin: 0 0 12px;
+	font-size: 1.25rem;
+	font-weight: 600;
+	color: var(--foreground);
+	text-align: left;
+	line-height: 1.4;
 }
 
 .take-meta {
-	margin: -8px 0 14px;
-	font-size: 0.9rem;
-	color: #64748b;
-	text-align: center;
+	margin: 0 0 20px;
+	font-size: 0.8125rem;
+	color: var(--foreground-subtle);
+	text-align: left;
 }
 
+.take-box button {
+	width: 100%;
+	padding: 14px 20px;
+	background: transparent;
+	color: var(--primary);
+	font-size: 0.875rem;
+	font-weight: 600;
+	border: 1px solid var(--primary);
+	border-radius: var(--radius-md);
+	cursor: pointer;
+	transition: all 0.2s ease;
+}
+
+.take-box button:hover {
+	background: var(--primary);
+	color: white;
+	transform: none;
+	box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+/* ============================================
+   SECTION HEADER
+   ============================================ */
 h1 {
 	margin-bottom: 8px;
 }
 
 h2 {
 	text-align: center;
+	font-size: 1rem;
+	color: var(--foreground-muted);
 }
 
-button {
-	transition: transform 0.15s ease, background 0.15s ease;
-}
-
-button:hover {
-	transform: translateY(-1px);
-}
-
-@media (max-width: 800px) {
+/* ============================================
+   RESPONSIVE
+   ============================================ */
+@media (max-width: 900px) {
 	.page-shell {
 		grid-template-columns: 1fr;
+		padding: 24px;
+		gap: 32px;
+	}
+
+	.hero-card {
+		position: static;
+		padding: 28px;
+	}
+
+	.hero-card h1 {
+		font-size: 1.75rem;
+	}
+}
+
+@media (max-width: 480px) {
+	.page-shell {
+		padding: 16px;
+	}
+
+	.hero-card {
+		padding: 24px;
+	}
+
+	.take-box {
+		padding: 20px;
 	}
 }
