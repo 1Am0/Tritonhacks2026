@@ -45,13 +45,11 @@
             <div class="chat-main">
                 <div id="messages"></div>
                 <form id="messageForm">
-                    <input id="authorInput" class="message-form-input" type="text" placeholder="Your name" required style="width:25%;margin-right:8px;" />
-                    <select id="stanceInput" class="message-form-select" required style="width:18%;margin-right:8px;">
-                        <option value="" selected disabled>Pick a side</option>
-                        <option value="agree">Agree</option>
-                        <option value="disagree">Disagree</option>
-                    </select>
-                    <input id="messageInput" class="message-form-input" type="text" placeholder="Write a message" required style="width:55%;margin-right:8px;" />
+                        <div id="participantInfo" style="width:20%;min-width:120px;margin-right:8px;display:flex;flex-direction:column;justify-content:center;">
+                            <div style="font-weight:600;color:var(--foreground);" id="participantName">You</div>
+                            <div style="font-size:0.85rem;color:var(--foreground-muted);" id="participantStance">No stance</div>
+                        </div>
+                        <input id="messageInput" class="message-form-input" type="text" placeholder="Write a message" required style="flex:1 1 auto;margin-right:8px;min-width:0;" />
                     <button id="sendMessage" class="message-form-button" type="submit">Send</button>
                 </form>
                 <p id="chatStatus" aria-live="polite"></p>
@@ -85,10 +83,10 @@
     const aiAvailabilityEl = document.getElementById("aiAvailability");
     const messagesEl = document.getElementById("messages");
     const messageForm = document.getElementById("messageForm");
-    const authorInput = document.getElementById("authorInput");
-    const stanceInput = document.getElementById("stanceInput");
     const messageInput = document.getElementById("messageInput");
     const chatStatus = document.getElementById("chatStatus");
+    const participantNameEl = document.getElementById('participantName');
+    const participantStanceEl = document.getElementById('participantStance');
 
     function getCookie(name) {
         const cookieValue = document.cookie
@@ -155,9 +153,22 @@
         return existing;
     }
 
+    function getDebateName() {
+        return getCookie('debateName') || '';
+    }
+
+    function getDebateStance() {
+        const s = getCookie('debateStance');
+        return s === 'agree' || s === 'disagree' ? s : null;
+    }
+
     function getSelectedStance() {
-        const stance = stanceInput.value;
-        return stance === 'agree' || stance === 'disagree' ? stance : null;
+        return getDebateStance();
+    }
+
+    function updateParticipantInfo() {
+        if (participantNameEl) participantNameEl.textContent = getDebateName() || 'You';
+        if (participantStanceEl) participantStanceEl.textContent = getDebateStance() ? (getDebateStance() === 'agree' ? 'Agree' : 'Disagree') : 'No stance';
     }
 
     function appendMessage(author, text, createdAt, messageSessionId, messageId) {
@@ -676,6 +687,9 @@
         });
     }
 
+    // show participant info from cookies
+    updateParticipantInfo();
+
     async function upsertPresence() {
         if (!configLoaded || !debateTopic) {
             return;
@@ -684,8 +698,8 @@
         const payload = {
             topic: debateTopic,
             session_id: sessionId,
-            display_name: authorInput.value.trim() || null,
-            stance: getSelectedStance(),
+            display_name: getDebateName() || null,
+            stance: getDebateStance(),
             last_seen: new Date().toISOString()
         };
 
@@ -751,9 +765,7 @@
             refreshPresenceCount().catch(err => console.warn('presence refresh failed:', err));
         }, 5000);
 
-        stanceInput.addEventListener('change', () => {
-            upsertPresence().catch(err => console.warn('presence update after stance change failed:', err));
-        });
+        // presence updates triggered from cookie changes (set by homepage modal)
 
         window.addEventListener('beforeunload', () => {
             if (!configLoaded || !debateTopic) {
@@ -767,7 +779,7 @@
 
     async function sendMessage(e) {
         e.preventDefault();
-        const author = authorInput.value.trim();
+        const author = getDebateName();
         const message = messageInput.value.trim();
         const stance = getSelectedStance();
         if (!message) return;

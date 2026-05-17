@@ -26,6 +26,7 @@
                 </div>
                 <div class="take-actions">
                     <button id="submitTake" type="submit">Create Debate</button>
+                    <button id="reloadTakes" type="button">Reload</button>
                 </div>
                 <p id="statusMessage" aria-live="polite"></p>
             </form>
@@ -34,6 +35,29 @@
             <div id="takeParent"></div>
         </section>
     </main>
+
+    <!-- Modal for confirming debate join (name + stance) -->
+    <div id="debateModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);align-items:center;justify-content:center;z-index:9999;">
+        <div style="background:var(--background-card);color:var(--foreground);padding:18px;border-radius:10px;min-width:320px;max-width:420px;border:1px solid var(--border);backdrop-filter:blur(12px)">
+            <h3 id="modalTopic" style="margin-top:0;font-size:1rem;color:#0f172a;">Confirm Debate</h3>
+            <div style="margin-bottom:8px;">
+                <label for="modalName">Your name</label>
+                <input id="modalName" type="text" style="width:100%;padding:8px;margin-top:6px;border-radius:6px;border:1px solid #cbd5e1;" />
+            </div>
+            <div style="margin-bottom:12px;">
+                <label for="modalStance">Your stance</label>
+                <select id="modalStance" style="width:100%;padding:8px;margin-top:6px;border-radius:6px;border:1px solid #cbd5e1;">
+                    <option value="" disabled selected>Pick a side</option>
+                    <option value="agree">Agree</option>
+                    <option value="disagree">Disagree</option>
+                </select>
+            </div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;">
+                <button id="modalCancel" type="button" style="padding:8px 12px;border-radius:6px;border:1px solid #cbd5e1;background:#fff;">Cancel</button>
+                <button id="modalConfirm" type="button" style="padding:8px 12px;border-radius:6px;border:none;background:#2563eb;color:#fff;">Join Debate</button>
+            </div>
+        </div>
+    </div>
 
 </body>
 <script src="./supabase-config.js"></script>
@@ -120,12 +144,79 @@
     }
 
     function goToDebate(event) {
-        console.log(event.target);
-        console.log(takeList[event.target.id].childNodes[0].textContent);
-        document.cookie = "debateTopic=" + encodeURIComponent(takeList[event.target.id].childNodes[0].textContent) + "; path=/";
-        console.log(document.cookie);
-        window.open("./debate.html", "_blank");
+        // show modal to collect name + stance before opening debate
+        const idx = Number(event.target.id);
+        const topicText = takeList[idx].childNodes[0].textContent;
+        showDebateModal(topicText);
     }
+
+    function setCookie(name, value, days) {
+        let expires = '';
+        if (days) {
+            const d = new Date();
+            d.setTime(d.getTime() + (days*24*60*60*1000));
+            expires = '; expires=' + d.toUTCString();
+        }
+        document.cookie = name + '=' + encodeURIComponent(value || '') + expires + '; path=/';
+    }
+
+    function getCookie(name) {
+        const cookieValue = document.cookie.split('; ').find((entry) => entry.startsWith(name + '='));
+        return cookieValue ? decodeURIComponent(cookieValue.slice(name.length + 1)) : '';
+    }
+
+    // Modal handling
+    let pendingTopic = '';
+    const debateModal = document.getElementById('debateModal');
+    const modalTopic = document.getElementById('modalTopic');
+    const modalName = document.getElementById('modalName');
+    const modalStance = document.getElementById('modalStance');
+    const modalCancel = document.getElementById('modalCancel');
+    const modalConfirm = document.getElementById('modalConfirm');
+
+    function showDebateModal(topicText) {
+        pendingTopic = topicText;
+        modalTopic.textContent = topicText;
+        // prefill name from cookie if available
+        modalName.value = getCookie('debateName') || authorTextInput.value || '';
+        const s = getCookie('debateStance');
+        if (s) modalStance.value = s;
+        debateModal.style.display = 'flex';
+    }
+
+    function hideDebateModal() {
+        debateModal.style.display = 'none';
+    }
+
+    modalCancel.addEventListener('click', () => {
+        hideDebateModal();
+    });
+
+    modalConfirm.addEventListener('click', () => {
+        const name = modalName.value.trim();
+        const stance = modalStance.value;
+        if (!name) {
+            setStatus('Please enter your name.');
+            return;
+        }
+        if (!stance) {
+            setStatus('Please pick a side.');
+            return;
+        }
+        // save cookies
+        setCookie('debateName', name, 365);
+        setCookie('debateStance', stance, 365);
+        // also keep homepage creator name in sync
+        authorTextInput.value = name;
+        // store topic and open debate
+        setCookie('debateTopic', pendingTopic, 1);
+        hideDebateModal();
+        window.open('./debate.html', '_blank');
+    });
+
+    // reload button behavior
+    const reloadBtn = document.getElementById('reloadTakes');
+    if (reloadBtn) reloadBtn.addEventListener('click', function(){ loadFromSupabase().catch(function(e){ setStatus(e instanceof Error?e.message:String(e)); }); });
 
     function addPrompt(topicText, authorText, createdAt) {
         let selectButton = document.createElement("button");
@@ -322,6 +413,15 @@
     }
 
     takeForm.addEventListener("submit", submitTake);
+
+    // keep homepage author field in sync with cookie
+    (function(){
+        const saved = (document.cookie.split('; ').find(e=>e.startsWith('debateName='))||'').split('=')[1];
+        if (saved) {
+            try { authorTextInput.value = decodeURIComponent(saved); } catch(e){}
+        }
+        authorTextInput.addEventListener('input', function(){ setCookie('debateName', authorTextInput.value, 365); });
+    })();
 
     loadSupabaseConfig().then(loadFromSupabase).catch(function (error) {
         setStatus(error instanceof Error ? error.message : "Something went wrong.");
