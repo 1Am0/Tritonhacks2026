@@ -1,4 +1,8 @@
 {
+  "scripts": {
+    "dev": "python3 -m http.server 3000 --bind 0.0.0.0",
+    "start": "python3 -m http.server 3000 --bind 0.0.0.0"
+  },
   "dependencies": {
     "dotenv": "^17.4.2",
     "@ai-sdk/groq": "^1.0.0",
