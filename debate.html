@@ -410,6 +410,7 @@
     let lastTimestamp = null;
     let realtimeChannel = null;
     let aiRealtimeChannel = null;
+    let presenceRealtimeChannel = null;
     let supabaseClient = null;
     let allMessages = [];
     let messageIds = new Set();
@@ -480,6 +481,26 @@
                             lastAnalyzedMessageCount = Number(row.analyzed_message_count || 0);
                             renderAiResult(row.result);
                             setAiStatus(`Updated live for ${lastAnalyzedMessageCount} messages.`);
+                        }
+                    )
+                    .subscribe();
+            }
+
+            if (!presenceRealtimeChannel) {
+                presenceRealtimeChannel = client.channel('presence_changes')
+                    .on(
+                        'postgres_changes',
+                        { event: '*', schema: 'public', table: SUPABASE_TABLE_PRESENCE },
+                        (payload) => {
+                            try {
+                                const row = payload.new || payload.old;
+                                if (!row) return;
+                                if (debateTopic && row.topic !== debateTopic) return;
+                                // On any presence change, refresh the online count quickly
+                                refreshPresenceCount().catch(err => console.warn('presence refresh failed (realtime):', err));
+                            } catch (e) {
+                                console.warn('presence realtime handler error', e);
+                            }
                         }
                     )
                     .subscribe();
